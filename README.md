@@ -37,9 +37,9 @@ An intelligent, Python-based search engine that lets you semantically search thr
 ├── search/
 │   ├── semantic_search.py      # Search engine logic
 ├── data/
-│   ├── captions/               # Raw transcripts
-│   ├── chunks/                 # Preprocessed chunks
-│   └── embeddings/             # Final JSON embeddings
+    ├── captions/               # Raw transcripts
+    ├── chunks/                 # Preprocessed chunks
+    └── embeddings/             # Final JSON embeddings
 ```
 
 ---
