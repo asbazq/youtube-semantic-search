@@ -26,7 +26,7 @@ An intelligent, Python-based search engine that lets you semantically search thr
 ## 📁 Project Structure
 
 ```
-├── main.py                     # CLI Interface
+├── main.py                     # Pipeline
 ├── scripts/
 │   ├── fetch_captions.py       # Fetch captions using yt-dlp
 │   ├── preprocess_captions.py  # Clean and chunk transcripts
