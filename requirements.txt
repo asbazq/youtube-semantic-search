@@ -6,8 +6,7 @@ sentence-transformers==2.2.2
 transformers==4.30.2
 huggingface-hub==0.16.4
 nltk==3.8.1
-pinecone==3.0.0
-pinecone-client==3.0.0
+chromadb==0.4.24
 gradio==3.50.2
 python-dotenv==1.0.1
 fastapi==0.95.2

@@ -3,7 +3,6 @@ import sys
 import subprocess
 from pathlib import Path
 from search.semantic_search import YouTubeSemanticSearch, format_time
-from db.pinecone_setup import get_pinecone_client, get_pinecone_index
 
 def run_script(command: list):
     try:
@@ -132,7 +131,7 @@ def main():
 
         elif choice == "2":
             videos = engine.get_video_list()
-            print("\n🎬 Available Videos in Pinecone:")
+            print("\n🎬 Available Videos in ChromaDB:")
             for v in videos:
                 print(f" - {v['video_id']} | {v['title']}")
         elif choice == "3":

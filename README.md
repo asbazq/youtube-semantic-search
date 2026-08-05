@@ -1,6 +1,6 @@
 # 🎥 YouTube Semantic Search Engine
 
-An intelligent, Python-based search engine that lets you semantically search through YouTube video transcripts. Built using yt-dlp, SentenceTransformers, Pinecone, and Gradio.
+An intelligent, Python-based search engine that lets you semantically search through YouTube video transcripts. Built using yt-dlp, SentenceTransformers, ChromaDB, and Gradio.
 
 ---
 
@@ -9,7 +9,7 @@ An intelligent, Python-based search engine that lets you semantically search thr
 - ✅ Fetch YouTube captions using yt-dlp
 - ✅ Preprocess captions into timestamped semantic chunks
 - ✅ Generate embeddings using all-mpnet-base-v2
-- ✅ Store and query vectors in Pinecone
+- ✅ Store and query vectors in ChromaDB
 - ✅ Command-Line Interface to:
   - Process and embed new videos
   - Search video transcripts semantically
@@ -32,8 +32,8 @@ An intelligent, Python-based search engine that lets you semantically search thr
 │   ├── preprocess_captions.py  # Clean and chunk transcripts
 │   └── embed_chunks.py         # Generate embeddings
 ├── db/
-│   ├── pinecone_setup.py       # Pinecone setup
-│   └── upload_embeddings.py    # Upload to Pinecone
+│   ├── chroma_setup.py         # ChromaDB setup
+│   └── upload_embeddings.py    # Upload to ChromaDB
 ├── search/
 │   ├── semantic_search.py      # Search engine logic
 ├── data/
@@ -63,9 +63,8 @@ pip install -r requirements.txt
 Create a `.env` file in the root directory:
 
 ```env
-PINECONE_API_KEY=your_pinecone_api_key
-PINECONE_ENV=your_pinecone_environment
-PINECONE_INDEX=your_index_name
+CHROMA_PERSIST_DIRECTORY=data/chroma
+CHROMA_COLLECTION=youtube-semantic-search
 ```
 
 ## 💻 Usage (CLI)
@@ -102,7 +101,7 @@ Coming soon in `app.py`:
 - Python 3.10+
 - `yt-dlp`
 - `sentence-transformers`
-- `pinecone-client`
+- `chromadb`
 - `Gradio` (for web UI)
 - `dotenv`, `json`, `subprocess`, `os`, `pathlib`
 
