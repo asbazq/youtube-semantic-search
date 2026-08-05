@@ -3,7 +3,13 @@ from pathlib import Path
 import re    
 import nltk
 import argparse
+import sys
 from nltk.tokenize import sent_tokenize
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
 
 # Download required NLTK data
 try:
@@ -137,7 +143,7 @@ def process_caption_file(input_file, output_file):
     """Process a complete caption file"""
     print(f"🔄 Processing {input_file}...")
 
-    with open(input_file) as f:
+    with open(input_file, encoding="utf-8") as f:
         segments = json.load(f)
 
     print(f"📥 Loaded {len(segments)} caption segments")
@@ -183,6 +189,7 @@ if __name__ == "__main__":
 
     print(f"🔍 Found {len(caption_files)} caption files")
     new_files_found = False
+    processed_count = 0
 
     for input_file in caption_files:
         output_file = chunks_dir / f"processed_{input_file.stem}.json"
@@ -198,6 +205,7 @@ if __name__ == "__main__":
 
         new_files_found = True
         chunks = process_caption_file(input_file, output_file)
+        processed_count += 1
 
         print(f"\n🎯 Chunk Statistics:")
         word_counts = [len(chunk['text'].split()) for chunk in chunks]
@@ -210,5 +218,4 @@ if __name__ == "__main__":
     if not new_files_found:
         print("\n✅ No new caption files to process. All files are up to date!")
     else:
-        processed_count = sum(1 for f in caption_files if not (chunks_dir / f'processed_{f.stem}.json').exists() or f.stat().st_mtime > (chunks_dir / f'processed_{f.stem}.json').stat().st_mtime)
         print(f"\n🎉 Processing complete! Processed {processed_count} files.")

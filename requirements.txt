@@ -17,3 +17,4 @@ rich==13.7.0
 pytest==8.0.0
 mariadb==1.1.5
 youtube-transcript-api==0.6.0
+yt-dlp

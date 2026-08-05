@@ -2,7 +2,27 @@ import os
 import sys
 import subprocess
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 from search.semantic_search import YouTubeSemanticSearch, format_time
+
+
+def normalize_video_id(value: str) -> str:
+    """Extract a bare YouTube video ID from an ID or common YouTube URL."""
+    value = value.strip().strip('"').strip("'")
+    if not value:
+        return ""
+
+    candidate = value if "://" in value else f"https://youtube.com/watch?v={value}"
+    parsed = urlparse(candidate)
+
+    if parsed.hostname in {"youtu.be", "www.youtu.be"}:
+        return parsed.path.strip("/").split("/")[0]
+
+    query_id = parse_qs(parsed.query).get("v", [""])[0]
+    if query_id:
+        return query_id
+
+    return value.split("&", 1)[0].split("?", 1)[0]
 
 def run_script(command: list):
     try:
@@ -104,7 +124,7 @@ def main():
         choice = input("Choose an option (1-3): ").strip()
 
         if choice == "1":
-            video_id = input("🎥 Enter YouTube Video ID: ").strip().strip('"').strip("'")
+            video_id = normalize_video_id(input("🎥 Enter YouTube Video ID or URL: "))
             video_title = input("📝 Enter a title/label for the video: ").strip()
 
             if not video_id or not video_title:

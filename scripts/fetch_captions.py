@@ -6,14 +6,18 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from utils.utils import save_json, parse_vtt_file, ensure_dir_exists
-
+from dotenv import load_dotenv
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from utils.utils import save_json, parse_vtt_file, ensure_dir_exists
+
 # --- Configurations ---
+load_dotenv()
 DATA_DIR = Path("data/captions")
 VIDEO_LIST_FILE = Path("video_ids.json")
+CAPTION_LANGUAGES = os.getenv("CAPTION_LANGUAGES", "ko,en")
+YTDLP_COOKIES_FROM_BROWSER = os.getenv("YTDLP_COOKIES_FROM_BROWSER")
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
@@ -29,15 +33,20 @@ def fetch_caption_with_ytdlp(video_id: str, title: str, output_dir: Path):
             video_url = f"https://www.youtube.com/watch?v={video_id}"
 
             cmd = [
-                "yt-dlp",
+                sys.executable,
+                "-m",
+                "yt_dlp",
                 "--write-subs",
                 "--write-auto-subs",
-                "--sub-langs", "en",  
+                "--sub-langs", CAPTION_LANGUAGES,
                 "--sub-format", "vtt",
                 "--skip-download",
                 "--output", f"{temp_dir}/%(title)s.%(ext)s",
                 video_url
             ]
+
+            if YTDLP_COOKIES_FROM_BROWSER:
+                cmd[3:3] = ["--cookies-from-browser", YTDLP_COOKIES_FROM_BROWSER]
 
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
@@ -60,7 +69,8 @@ def fetch_caption_with_ytdlp(video_id: str, title: str, output_dir: Path):
                     logger.warning(f"⚠️ No subtitle files found for {video_id}")
                     return False
             else:
-                logger.error(f"❌ yt-dlp failed for {video_id}: {result.stderr}")
+                error_message = result.stderr.strip() or result.stdout.strip()
+                logger.error("❌ yt-dlp failed for %s:\n%s", video_id, error_message)
                 return False
 
     except subprocess.TimeoutExpired:
@@ -89,15 +99,21 @@ def main():
     ensure_dir_exists(DATA_DIR)
 
     try:
-        subprocess.run(["yt-dlp", "--version"], capture_output=True, check=True)
+        subprocess.run(
+            [sys.executable, "-m", "yt_dlp", "--version"],
+            capture_output=True,
+            check=True,
+        )
     except (subprocess.CalledProcessError, FileNotFoundError):
         logger.error("❌ yt-dlp is not installed. Install it with: pip install yt-dlp")
-        return
+        raise SystemExit(1)
 
     # --- Interactive input if no args and video_ids.json doesn't exist ---
     if len(sys.argv) == 1 and not VIDEO_LIST_FILE.exists():
         video_id, title = prompt_user_for_input()
         success = fetch_caption_with_ytdlp(video_id, title, DATA_DIR)
+        if not success:
+            raise SystemExit(1)
         return
 
     # --- Run with command-line arguments ---
@@ -110,6 +126,7 @@ def main():
             logger.info("🎯 Completed! Successfully processed 1/1 videos")
         else:
             logger.warning("⚠️ Failed to process the video.")
+            raise SystemExit(1)
         return
 
     # --- Fallback to batch mode using video_ids.json ---
@@ -129,6 +146,8 @@ def main():
             success_count += 1
 
     logger.info(f"🎯 Completed! Successfully processed {success_count}/{len(videos)} videos")
+    if success_count != len(videos):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
