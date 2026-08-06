@@ -18,11 +18,11 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from utils.utils import save_json, parse_vtt_file, ensure_dir_exists
 
-# 환경 설정: .env 값이 없으면 한국어(ko), 영어(en) 순서를 기본으로 사용한다.
+# 이 프로젝트는 한국어 자막만 사용한다. 영어 자막으로 대체하지 않는다.
 load_dotenv()
 DATA_DIR = Path("data/captions")
 VIDEO_LIST_FILE = Path("video_ids.json")
-CAPTION_LANGUAGES = os.getenv("CAPTION_LANGUAGES", "ko,en")
+CAPTION_LANGUAGES = "ko"
 YTDLP_COOKIES_FROM_BROWSER = os.getenv("YTDLP_COOKIES_FROM_BROWSER")
 
 # --- Logging Setup ---
@@ -31,8 +31,8 @@ logger = logging.getLogger(__name__)
 
 
 def select_subtitle_file(subtitle_files):
-    """받은 VTT 파일 중 설정된 언어 순서가 가장 빠른 파일을 고른다."""
-    # "ko,en" 문자열을 ["ko", "en"] 리스트로 바꾸는 list comprehension이다.
+    """받은 VTT 파일 중 요청한 한국어 자막 파일을 고른다."""
+    # "ko" 문자열을 ["ko"] 리스트로 바꾸는 list comprehension이다.
     language_order = [
         language.strip() for language in CAPTION_LANGUAGES.split(",") if language.strip()
     ]

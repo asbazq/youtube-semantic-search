@@ -65,7 +65,6 @@ Create a `.env` file in the root directory:
 ```env
 CHROMA_PERSIST_DIRECTORY=data/chroma
 CHROMA_COLLECTION=youtube-semantic-search
-CAPTION_LANGUAGES=ko,en
 # Optional: use a signed-in browser if YouTube returns HTTP 429
 YTDLP_COOKIES_FROM_BROWSER=edge
 ```
