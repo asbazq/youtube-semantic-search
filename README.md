@@ -8,7 +8,7 @@ An intelligent, Python-based search engine that lets you semantically search thr
 
 - ✅ Fetch YouTube captions using yt-dlp
 - ✅ Preprocess captions into timestamped semantic chunks
-- ✅ Generate embeddings using all-mpnet-base-v2
+- ✅ Generate Korean/multilingual embeddings using paraphrase-multilingual-mpnet-base-v2
 - ✅ Store and query vectors in ChromaDB
 - ✅ Command-Line Interface to:
   - Process and embed new videos

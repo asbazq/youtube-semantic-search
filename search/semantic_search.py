@@ -14,7 +14,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from db.chroma_setup import get_chroma_collection
 
-MODEL_NAME = "all-mpnet-base-v2"
+# 자막 벡터를 만들 때 사용한 모델과 반드시 같아야 한다.
+MODEL_NAME = "paraphrase-multilingual-mpnet-base-v2"
 MIN_SCORE = 0.3
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")

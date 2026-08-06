@@ -9,34 +9,19 @@
 import json
 from pathlib import Path
 import re
-import nltk
 import argparse
 import sys
-from nltk.tokenize import sent_tokenize
 
 # 일부 터미널에서 한글/이모지가 깨지지 않도록 출력 인코딩을 UTF-8로 맞춘다.
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8")
-if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8")
+# sys.stdout은 실행 환경에 따라 reconfigure가 없는 TextIO일 수도 있다.
+# getattr의 기본값 None을 이용하면 속성이 없어도 오류가 발생하지 않는다.
+stdout_reconfigure = getattr(sys.stdout, "reconfigure", None)
+stderr_reconfigure = getattr(sys.stderr, "reconfigure", None)
 
-# Keep tokenizer data inside the project so the CLI and VS Code debugger use
-# the same resources regardless of the user's global NLTK configuration.
-NLTK_DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "nltk_data"
-NLTK_DATA_DIR.mkdir(parents=True, exist_ok=True)
-nltk.data.path.insert(0, str(NLTK_DATA_DIR))
-
-for resource in ("punkt", "punkt_tab"):
-    try:
-        nltk.data.find(f"tokenizers/{resource}")
-    except LookupError:
-        if not nltk.download(
-            resource,
-            download_dir=str(NLTK_DATA_DIR),
-            quiet=True,
-            raise_on_error=True,
-        ):
-            raise RuntimeError(f"Failed to download required NLTK resource: {resource}")
+if callable(stdout_reconfigure):
+    stdout_reconfigure(encoding="utf-8")
+if callable(stderr_reconfigure):
+    stderr_reconfigure(encoding="utf-8")
 
 def combine_caption_segments(segments, max_gap=0.5):
     """앞 자막과의 시간 간격이 max_gap초 이하인 조각들을 한 블록으로 합친다."""
@@ -70,16 +55,14 @@ def combine_caption_segments(segments, max_gap=0.5):
     return combined
 
 def add_punctuation(text):
-    """연속 공백을 정리하고 간단한 영어 접속사 주변에 문장부호를 보충한다."""
+    """한국어 자막의 연속 공백을 정리하고 문장 끝에 마침표를 보충한다."""
     try:
         # re.sub(패턴, 대체값, 문자열)은 정규식과 일치하는 부분을 바꾼다.
         clean_text = re.sub(r'\s+', ' ', text.strip())
-        clean_text = re.sub(r'\b(well|so|now|then|first|second|also|however|therefore)\s+', r'\1, ', clean_text, flags=re.IGNORECASE)
-        clean_text = re.sub(r'(?<![.!?])\s+(now|so|well|first|then|also|however|therefore)\s+', r'. \1 ', clean_text, flags=re.IGNORECASE)
 
-        if clean_text:
-            clean_text = clean_text[0].upper() + clean_text[1:]
-        if clean_text and clean_text[-1] not in '.!?':
+        # 한국어에는 대소문자가 없으므로 첫 글자를 upper()로 바꾸지 않는다.
+        # 이미 한국어/영어 문장부호로 끝나면 마침표를 중복해서 붙이지 않는다.
+        if clean_text and clean_text[-1] not in '.!?。！？':
             clean_text += '.'
 
         return clean_text
@@ -87,7 +70,23 @@ def add_punctuation(text):
     except Exception as e:
         print(f"⚠️ Punctuation failed: {e}")
         fallback = text.strip()
-        return fallback[0].upper() + fallback[1:] + '.' if fallback else text
+        return fallback + '.' if fallback and fallback[-1] not in '.!?。！？' else fallback
+
+
+def split_korean_sentences(text):
+    """한국어 문장부호 뒤의 공백을 기준으로 문장을 나눈다.
+
+    문장부호가 없는 자동 자막은 하나의 문장으로 남는다. 그러면
+    ``split_long_blocks``가 아래에서 단어 수를 기준으로 다시 나눈다.
+    """
+    if not text or not text.strip():
+        return []
+
+    return [
+        sentence.strip()
+        for sentence in re.split(r'(?<=[.!?。！？])\s+', text.strip())
+        if sentence.strip()
+    ]
 
 def create_semantic_chunks(blocks, target_length=30, max_length=60):
     """여러 블록을 target_length 단어 안팎의 검색용 청크로 묶는다."""
@@ -143,8 +142,8 @@ def split_long_blocks(blocks, max_duration=30.0, max_words=80):
             continue
 
         text = block['text']
-        # NLTK가 문장부호를 보고 문장 경계를 찾는다. 빈 문자열이면 그대로 리스트에 담는다.
-        sentences = sent_tokenize(text) if text else [text]
+        # 한국어 문장부호를 기준으로 나누므로 외부 토크나이저가 필요 없다.
+        sentences = split_korean_sentences(text)
 
         if len(sentences) <= 1:
             words = text.split()

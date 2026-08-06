@@ -13,7 +13,8 @@ from sentence_transformers import SentenceTransformer
 # --- Configuration ---
 CHUNKS_DIR = Path("data/chunks")
 EMBEDDINGS_DIR = Path("data/embeddings")
-MODEL_NAME = "all-mpnet-base-v2"
+# 한국어를 포함한 여러 언어의 문장을 의미에 따라 비교할 수 있는 모델이다.
+MODEL_NAME = "paraphrase-multilingual-mpnet-base-v2"
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")

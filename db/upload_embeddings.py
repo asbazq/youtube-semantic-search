@@ -73,6 +73,18 @@ def upload_file_to_chroma(collection, filepath: Path):
 
         video_title, video_id = extract_video_info_from_filename(filepath.name)
         records = prepare_chunks_for_chroma(chunks, video_title, video_id, filepath.name)
+
+        # 같은 영상의 기존 벡터를 먼저 제거한다. 단순 upsert만 하면 새 청크 수가
+        # 줄었을 때 예전 청크가 DB에 남아 잘못된 검색 결과를 낼 수 있다.
+        existing = collection.get(where={"video_id": {"$eq": video_id}})
+        if existing["ids"]:
+            collection.delete(ids=existing["ids"])
+            logger.info(
+                "Replaced %s existing vectors for video %s",
+                len(existing["ids"]),
+                video_id,
+            )
+
         # range(시작, 끝, 간격): 0, 100, 200 ... 순서로 반복한다.
         for offset in range(0, len(records), BATCH_SIZE):
             batch = records[offset : offset + BATCH_SIZE]
