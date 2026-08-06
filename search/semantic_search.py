@@ -1,3 +1,5 @@
+"""사용자의 검색어와 저장된 자막 벡터를 비교하는 검색 모듈."""
+
 import argparse
 import logging
 import os
@@ -20,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 def format_time(seconds: int) -> str:
+    """초 단위 숫자를 ``시:분:초`` 문자열로 바꾼다."""
     try:
         return str(timedelta(seconds=int(seconds)))
     except (TypeError, ValueError):
@@ -27,12 +30,20 @@ def format_time(seconds: int) -> str:
 
 
 class YouTubeSemanticSearch:
+    """임베딩 모델과 ChromaDB 컬렉션을 묶어 검색 기능을 제공하는 클래스.
+
+    클래스는 데이터(self.model, self.collection)와 관련 함수(method)를 하나의
+    객체에 묶는 문법이다. ``self``는 현재 만들어진 객체 자신을 뜻한다.
+    """
+
     def __init__(self):
+        """``YouTubeSemanticSearch()`` 객체 생성 직후 자동 실행되는 초기화 함수."""
         logger.info("Loading embedding model: %s", MODEL_NAME)
         self.model = SentenceTransformer(MODEL_NAME)
         self.collection = get_chroma_collection()
 
     def embed_query(self, query: str) -> Optional[List[float]]:
+        """질문 문자열을 숫자 리스트로 변환한다. 실패하면 None을 반환한다."""
         if not query or not query.strip():
             logger.warning("Empty query provided")
             return None
@@ -43,6 +54,10 @@ class YouTubeSemanticSearch:
             return None
 
     def _query(self, embedding: List[float], top_k: int, where=None):
+        """ChromaDB에서 가까운 벡터를 찾아 (메타데이터, 점수) 목록으로 반환한다.
+
+        이름 앞의 밑줄은 클래스 내부에서 주로 쓰는 메서드라는 관례다.
+        """
         count = self.collection.count()
         if count == 0:
             return []
@@ -52,8 +67,12 @@ class YouTubeSemanticSearch:
             where=where,
             include=["metadatas", "distances"],
         )
-        metadatas = response.get("metadatas", [[]])[0]
-        distances = response.get("distances", [[]])[0]
+        # dict.get(key, 기본값)은 키가 없을 때 KeyError 대신 기본값을 돌려준다.
+        metadatas_list = response.get("metadatas") or [[]]
+        distances_list = response.get("distances") or [[]]
+        metadatas = metadatas_list[0] if metadatas_list else []
+        distances = distances_list[0] if distances_list else []
+        # zip은 같은 위치의 metadata와 distance를 한 쌍으로 묶는다.
         return [
             (metadata, 1.0 - distance)
             for metadata, distance in zip(metadatas, distances)
@@ -61,6 +80,7 @@ class YouTubeSemanticSearch:
         ]
 
     def search(self, query: str, top_k: int = 10, include_metadata: bool = True) -> Dict[str, Any]:
+        """모든 영상에서 검색하고 화면에 사용하기 쉬운 dict로 반환한다."""
         del include_metadata  # Metadata is required to build the public result objects.
         embedding = self.embed_query(query)
         if embedding is None:
@@ -69,7 +89,8 @@ class YouTubeSemanticSearch:
             matches = self._query(embedding, top_k)
             results = {"query": query, "total_found": len(matches), "results": []}
             for metadata, score in matches:
-                video_id = metadata.get("video_id", "").split("&")[0]
+                raw_video_id = metadata.get("video_id", "")
+                video_id = str(raw_video_id or "").split("&")[0]
                 results["results"].append(self._result(metadata, score, video_id, include_duration=True))
             return results
         except Exception as error:
@@ -77,6 +98,7 @@ class YouTubeSemanticSearch:
             return {"error": str(error)}
 
     def search_by_video(self, query: str, video_id: str, top_k: int = 10) -> Dict[str, Any]:
+        """where 조건으로 특정 영상의 자막만 검색한다."""
         embedding = self.embed_query(query)
         if embedding is None:
             return {"error": "Failed to embed query"}
@@ -92,6 +114,10 @@ class YouTubeSemanticSearch:
 
     @staticmethod
     def _result(metadata, score, video_id, include_duration=False):
+        """DB 검색 결과를 프로그램 공통 결과 형식으로 정리한다.
+
+        staticmethod는 self가 필요 없는, 클래스와 관련된 보조 함수에 사용한다.
+        """
         result = {
             "text": metadata.get("text", ""),
             "video_id": video_id,
@@ -106,12 +132,14 @@ class YouTubeSemanticSearch:
         return result
 
     def get_video_list(self) -> List[Dict[str, str]]:
+        """DB 메타데이터에서 중복되지 않은 영상 ID와 제목 목록을 만든다."""
         try:
             stored = self.collection.get(include=["metadatas"])
             videos = {}
             for metadata in stored.get("metadatas", []):
                 video_id = metadata.get("video_id", "")
                 if video_id:
+                    # setdefault는 키가 처음 나타났을 때만 값을 저장해 중복을 제거한다.
                     videos.setdefault(video_id, metadata.get("video_title", "Unknown"))
             return [{"video_id": video_id, "title": title} for video_id, title in videos.items()]
         except Exception as error:
@@ -120,6 +148,7 @@ class YouTubeSemanticSearch:
 
 
 def interactive_search():
+    """search 모듈을 직접 실행했을 때 사용할 별도의 검색 메뉴."""
     engine = YouTubeSemanticSearch()
     while True:
         print("\n1. General search\n2. Search by specific video\n3. Show available videos\n4. Exit")

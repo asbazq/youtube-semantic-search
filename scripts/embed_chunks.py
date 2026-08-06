@@ -1,3 +1,9 @@
+"""자막 청크의 문장을 의미를 표현하는 숫자 벡터로 변환한다.
+
+컴퓨터는 문장을 직접 비교하기 어려우므로 SentenceTransformer 모델로 각 문장을
+여러 실수의 리스트(embedding)로 바꾼다.
+"""
+
 import json
 import logging
 import argparse
@@ -16,7 +22,7 @@ logger = logging.getLogger(__name__)
 # --- Ensure output directory exists ---
 EMBEDDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
-# --- Load embedding model ---
+# 모델 로드는 비용이 크므로 파일 시작 시 한 번만 수행하고 모든 파일에서 재사용한다.
 logger.info(f"📦 Loading embedding model: {MODEL_NAME}")
 try:
     model = SentenceTransformer(MODEL_NAME)
@@ -28,8 +34,9 @@ except Exception as e:
 # --- Function to embed a single chunk file ---
 def embed_chunks_file(input_file: Path, output_file: Path):
     """
-    Load chunks from input_file, generate embeddings using SBERT,
-    and write the output to output_file with embeddings attached.
+    입력 JSON의 청크를 읽고 임베딩을 추가해 출력 JSON으로 저장한다.
+
+    Path는 문자열 경로보다 파일 경로 연산을 편리하게 해 주는 객체다.
     """
     try:
         logger.info(f"🔄 Embedding: {input_file.name}")
@@ -40,6 +47,7 @@ def embed_chunks_file(input_file: Path, output_file: Path):
         if not isinstance(chunks, list):
             raise ValueError("Expected list of chunks")
 
+        # 모델에는 텍스트만 전달하지만 결과를 원래 청크에 붙이기 위해 인덱스도 기억한다.
         texts = []
         valid_indices = []
 
@@ -54,9 +62,11 @@ def embed_chunks_file(input_file: Path, output_file: Path):
             logger.warning(f"⚠️ No valid chunks to embed in: {input_file.name}")
             return
 
+        # encode는 문장 목록을 2차원 숫자 배열로 바꾼다.
         embeddings = model.encode(texts, show_progress_bar=True, convert_to_numpy=True)
 
         for i, idx in enumerate(valid_indices):
+            # NumPy 배열은 JSON 저장이 안 되므로 일반 Python list로 변환한다.
             chunks[idx]["embedding"] = embeddings[i].tolist()
 
         with open(output_file, "w", encoding="utf-8") as f:
@@ -69,6 +79,7 @@ def embed_chunks_file(input_file: Path, output_file: Path):
 
 # --- Main driver function ---
 def main(overwrite=False):
+    """모든 청크 파일을 임베딩하되 최신 결과는 건너뛴다."""
     chunk_files = sorted(CHUNKS_DIR.glob("*.json"))
 
     if not chunk_files:
@@ -83,10 +94,13 @@ def main(overwrite=False):
     for chunk_file in chunk_files:
         output_file = EMBEDDINGS_DIR / chunk_file.name
 
+        # 출력 수정 시간이 입력보다 최신이면 이미 최신 결과라는 뜻이다.
         if output_file.exists() and not overwrite:
-            logger.info(f"⏩ Skipping (already embedded): {chunk_file.name}")
-            skipped_count += 1
-            continue
+            if output_file.stat().st_mtime >= chunk_file.stat().st_mtime:
+                logger.info(f"⏩ Skipping (already embedded): {chunk_file.name}")
+                skipped_count += 1
+                continue
+            logger.info(f"🔄 Re-embedding updated chunks: {chunk_file.name}")
 
         embed_chunks_file(chunk_file, output_file)
         embedded_count += 1
@@ -99,6 +113,7 @@ def main(overwrite=False):
 
 # --- CLI entry ---
 if __name__ == "__main__":
+    # --overwrite를 주면 기존 결과의 수정 시간과 관계없이 다시 만든다.
     parser = argparse.ArgumentParser(description="Embed caption chunks using SentenceTransformer (SBERT)")
     parser.add_argument("--overwrite", action="store_true", help="Force overwrite existing embedding files")
     args = parser.parse_args()

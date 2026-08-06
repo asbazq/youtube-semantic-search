@@ -1,28 +1,50 @@
+"""짧고 중복이 많은 원본 자막을 검색하기 좋은 의미 단위 청크로 만든다.
+
+처리 순서:
+1. 시간상 가까운 자막 조각을 합친다.
+2. 지나치게 긴 블록을 문장 또는 단어 단위로 나눈다.
+3. 여러 블록을 적당한 길이의 검색 청크로 다시 묶는다.
+"""
+
 import json
 from pathlib import Path
-import re    
+import re
 import nltk
 import argparse
 import sys
 from nltk.tokenize import sent_tokenize
 
+# 일부 터미널에서 한글/이모지가 깨지지 않도록 출력 인코딩을 UTF-8로 맞춘다.
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
-# Download required NLTK data
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt')
+# Keep tokenizer data inside the project so the CLI and VS Code debugger use
+# the same resources regardless of the user's global NLTK configuration.
+NLTK_DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "nltk_data"
+NLTK_DATA_DIR.mkdir(parents=True, exist_ok=True)
+nltk.data.path.insert(0, str(NLTK_DATA_DIR))
+
+for resource in ("punkt", "punkt_tab"):
+    try:
+        nltk.data.find(f"tokenizers/{resource}")
+    except LookupError:
+        if not nltk.download(
+            resource,
+            download_dir=str(NLTK_DATA_DIR),
+            quiet=True,
+            raise_on_error=True,
+        ):
+            raise RuntimeError(f"Failed to download required NLTK resource: {resource}")
 
 def combine_caption_segments(segments, max_gap=0.5):
-    """Combine short caption segments into longer text blocks"""
+    """앞 자막과의 시간 간격이 max_gap초 이하인 조각들을 한 블록으로 합친다."""
     if not segments:
         return []
 
     combined = []
+    # 첫 자막으로 현재 작업 중인 블록을 초기화한다.
     current_block = {
         'text': segments[0]['text'],
         'start': segments[0]['start'],
@@ -30,6 +52,7 @@ def combine_caption_segments(segments, max_gap=0.5):
     }
 
     for segment in segments[1:]:
+        # 다음 자막 시작 시각 - 현재 블록 종료 시각 = 두 자막 사이의 공백 시간.
         gap = segment['start'] - current_block['end']
 
         if gap <= max_gap:
@@ -47,8 +70,9 @@ def combine_caption_segments(segments, max_gap=0.5):
     return combined
 
 def add_punctuation(text):
-    """Add basic punctuation"""
+    """연속 공백을 정리하고 간단한 영어 접속사 주변에 문장부호를 보충한다."""
     try:
+        # re.sub(패턴, 대체값, 문자열)은 정규식과 일치하는 부분을 바꾼다.
         clean_text = re.sub(r'\s+', ' ', text.strip())
         clean_text = re.sub(r'\b(well|so|now|then|first|second|also|however|therefore)\s+', r'\1, ', clean_text, flags=re.IGNORECASE)
         clean_text = re.sub(r'(?<![.!?])\s+(now|so|well|first|then|also|however|therefore)\s+', r'. \1 ', clean_text, flags=re.IGNORECASE)
@@ -66,7 +90,7 @@ def add_punctuation(text):
         return fallback[0].upper() + fallback[1:] + '.' if fallback else text
 
 def create_semantic_chunks(blocks, target_length=30, max_length=60):
-    """Create chunks by combining multiple blocks to reach target length"""
+    """여러 블록을 target_length 단어 안팎의 검색용 청크로 묶는다."""
     chunks = []
     current_chunk = {
         'text': '',
@@ -82,9 +106,11 @@ def create_semantic_chunks(blocks, target_length=30, max_length=60):
         if current_chunk['start'] is None:
             current_chunk['start'] = block['start']
 
+        # 현재 블록을 더했을 때 목표 길이를 넘으면 기존 청크를 먼저 완성한다.
         if word_count > 0 and (word_count + block_words > target_length or word_count > max_length):
             current_chunk['end'] = current_chunk['blocks'][-1]['end']
             current_chunk['duration'] = current_chunk['end'] - current_chunk['start']
+            # list comprehension으로 각 블록 텍스트를 얻고 join으로 하나의 문자열을 만든다.
             current_chunk['text'] = ' '.join([add_punctuation(b['text']) for b in current_chunk['blocks']])
             chunks.append(current_chunk)
 
@@ -107,7 +133,7 @@ def create_semantic_chunks(blocks, target_length=30, max_length=60):
     return chunks
 
 def split_long_blocks(blocks, max_duration=30.0, max_words=80):
-    """Split blocks that are too long into smaller pieces"""
+    """30초/80단어를 넘는 블록을 더 작은 문장 단위로 나눈다."""
     result = []
 
     for block in blocks:
@@ -117,11 +143,13 @@ def split_long_blocks(blocks, max_duration=30.0, max_words=80):
             continue
 
         text = block['text']
+        # NLTK가 문장부호를 보고 문장 경계를 찾는다. 빈 문자열이면 그대로 리스트에 담는다.
         sentences = sent_tokenize(text) if text else [text]
 
         if len(sentences) <= 1:
             words = text.split()
             sentences = []
+            # 문장 경계를 찾지 못하면 최대 단어 수의 절반씩 강제로 자른다.
             for i in range(0, len(words), max_words // 2):
                 sentences.append(' '.join(words[i:i + max_words // 2]))
 
@@ -140,7 +168,7 @@ def split_long_blocks(blocks, max_duration=30.0, max_words=80):
     return result
 
 def process_caption_file(input_file, output_file):
-    """Process a complete caption file"""
+    """자막 JSON 하나에 전체 전처리를 적용하고 생성된 청크를 반환한다."""
     print(f"🔄 Processing {input_file}...")
 
     with open(input_file, encoding="utf-8") as f:
@@ -164,6 +192,8 @@ def process_caption_file(input_file, output_file):
     return chunks
 
 def chunk_captions(video_id: str, title: str):
+    """단순 고정 크기 분할이 필요할 때 사용하는 이전 방식의 보조 함수."""
+    # 함수 안에서 import하면 이 함수가 호출될 때만 모듈을 불러온다.
     from utils.utils import load_json, save_json, split_into_chunks
     input_file = Path(f"data/captions/{title}_{video_id}.json")
     output_file = Path(f"data/chunks/{title}_{video_id}.json")
@@ -177,6 +207,7 @@ def chunk_captions(video_id: str, title: str):
     return True
 
 if __name__ == "__main__":
+    # 이 아래는 함수 정의가 아니라 스크립트를 직접 실행할 때의 실제 작업 흐름이다.
     captions_dir = Path("data/captions")
     chunks_dir = Path("data/chunks")
     chunks_dir.mkdir(parents=True, exist_ok=True)
@@ -194,6 +225,7 @@ if __name__ == "__main__":
     for input_file in caption_files:
         output_file = chunks_dir / f"processed_{input_file.stem}.json"
 
+        # 입력 파일이 출력보다 오래됐으면 이미 최신 처리 결과가 있으므로 건너뛴다.
         if output_file.exists():
             if input_file.stat().st_mtime <= output_file.stat().st_mtime:
                 print(f"⏩ Skipping {input_file.name} (already processed)")

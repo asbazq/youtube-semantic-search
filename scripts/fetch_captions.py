@@ -1,3 +1,9 @@
+"""yt-dlp로 YouTube 자막을 받아 프로젝트용 JSON으로 변환한다.
+
+입력: 영상 ID와 사용자가 정한 제목
+출력: data/captions/제목_영상ID.json
+"""
+
 import json
 import sys
 import os
@@ -12,7 +18,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from utils.utils import save_json, parse_vtt_file, ensure_dir_exists
 
-# --- Configurations ---
+# 환경 설정: .env 값이 없으면 한국어(ko), 영어(en) 순서를 기본으로 사용한다.
 load_dotenv()
 DATA_DIR = Path("data/captions")
 VIDEO_LIST_FILE = Path("video_ids.json")
@@ -24,14 +30,36 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 logger = logging.getLogger(__name__)
 
 
+def select_subtitle_file(subtitle_files):
+    """받은 VTT 파일 중 설정된 언어 순서가 가장 빠른 파일을 고른다."""
+    # "ko,en" 문자열을 ["ko", "en"] 리스트로 바꾸는 list comprehension이다.
+    language_order = [
+        language.strip() for language in CAPTION_LANGUAGES.split(",") if language.strip()
+    ]
+
+    def priority(subtitle_file):
+        """정렬에 쓸 (언어 우선순위, 파일명) 튜플을 만든다."""
+        name = subtitle_file.name.lower()
+        for index, language in enumerate(language_order):
+            language = language.lower()
+            if name.endswith(f".{language}.vtt") or f".{language}-" in name:
+                return index, name
+        return len(language_order), name
+
+    # min의 key에 함수를 넘기면 각 항목의 priority 결과가 가장 작은 것을 고른다.
+    return min(subtitle_files, key=priority)
+
+
 def fetch_caption_with_ytdlp(video_id: str, title: str, output_dir: Path):
-    """Fetch captions using yt-dlp and parse."""
+    """자막을 내려받아 파싱하고 성공하면 True, 실패하면 False를 반환한다."""
     try:
         logger.info(f"🔄 Fetching transcript for {title} ({video_id}) using yt-dlp...")
 
+        # with 블록이 끝나면 임시 폴더와 원본 VTT는 자동 삭제된다.
         with tempfile.TemporaryDirectory() as temp_dir:
             video_url = f"https://www.youtube.com/watch?v={video_id}"
 
+            # 쉘 문자열 대신 인자 리스트를 쓰면 공백이 있는 제목도 안전하게 전달된다.
             cmd = [
                 sys.executable,
                 "-m",
@@ -48,13 +76,15 @@ def fetch_caption_with_ytdlp(video_id: str, title: str, output_dir: Path):
             if YTDLP_COOKIES_FROM_BROWSER:
                 cmd[3:3] = ["--cookies-from-browser", YTDLP_COOKIES_FROM_BROWSER]
 
+            # 출력은 result.stdout/stderr에 문자열로 담고 최대 60초만 기다린다.
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
             if result.returncode == 0:
                 subtitle_files = list(Path(temp_dir).glob("*.vtt"))
 
                 if subtitle_files:
-                    subtitle_file = subtitle_files[0]
+                    subtitle_file = select_subtitle_file(subtitle_files)
+                    logger.info("🗣️ Selected subtitle: %s", subtitle_file.name)
                     transcript = parse_vtt_file(subtitle_file)
 
                     if transcript:
@@ -82,13 +112,14 @@ def fetch_caption_with_ytdlp(video_id: str, title: str, output_dir: Path):
 
 
 def fetch_captions_for_video(video_id: str, title: str) -> bool:
+    """다른 모듈이 자막 다운로드 기능만 호출할 때 사용하는 편의 함수."""
     output_dir = Path("data/captions")
     ensure_dir_exists(output_dir)
     return fetch_caption_with_ytdlp(video_id, title, output_dir)
 
 
 def prompt_user_for_input():
-    """Interactive mode: prompt for video ID and title"""
+    """터미널에서 영상 ID와 제목을 입력받아 튜플로 반환한다."""
     print()
     video_id = input("🎥 Enter the YouTube video ID: ").strip()
     title = input("📝 Enter a title/label for the video: ").strip()
@@ -96,6 +127,7 @@ def prompt_user_for_input():
 
 
 def main():
+    """명령행 인자 유무에 따라 단일 영상/대화형/일괄 모드를 실행한다."""
     ensure_dir_exists(DATA_DIR)
 
     try:
@@ -117,6 +149,7 @@ def main():
         return
 
     # --- Run with command-line arguments ---
+    # sys.argv[0]은 파일명, [1]과 [2]는 사용자가 전달한 영상 ID와 제목이다.
     if len(sys.argv) == 3:
         video_id = sys.argv[1]
         title = sys.argv[2]

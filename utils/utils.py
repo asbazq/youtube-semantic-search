@@ -1,3 +1,5 @@
+"""여러 스크립트에서 공통으로 사용하는 파일·문자열 처리 함수 모음."""
+
 import os
 import json
 import re
@@ -7,6 +9,7 @@ from difflib import SequenceMatcher  # ✅ For fuzzy text similarity
 
 logger = logging.getLogger(__name__)
 
+# ``from utils.utils import *``를 사용할 때 외부로 공개할 이름을 제한한다.
 __all__ = [
     "load_json", "save_json", "ensure_dir_exists",
     "vtt_time_to_seconds", "is_similar", "parse_vtt_file",
@@ -14,24 +17,27 @@ __all__ = [
 ]
 
 def ensure_dir_exists(path):
-    """Ensure that a directory exists."""
+    """폴더가 없으면 만들고, 이미 있으면 아무 작업도 하지 않는다."""
+    # isinstance는 객체가 특정 자료형인지 확인한다.
     path = str(path) if isinstance(path, Path) else path
     os.makedirs(path, exist_ok=True)
 
 def load_json(filepath):
-    """Load JSON file and return Python object."""
+    """JSON 파일을 Python의 dict/list 자료구조로 읽는다."""
     filepath = str(filepath) if isinstance(filepath, Path) else filepath
     with open(filepath, "r", encoding="utf-8") as f:
+        # with가 끝나면 파일 객체 f는 예외가 발생해도 자동으로 닫힌다.
         return json.load(f)
 
 def save_json(data, filepath):
-    """Save Python object as JSON."""
+    """Python dict/list를 한글이 보존되는 JSON 파일로 저장한다."""
     filepath = str(filepath) if isinstance(filepath, Path) else filepath
     with open(filepath, "w", encoding="utf-8") as f:
+        # indent=2는 들여쓰기, ensure_ascii=False는 한글을 \uXXXX로 바꾸지 않는 옵션이다.
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 def vtt_time_to_seconds(time_str):
-    """Convert VTT timestamp to seconds."""
+    """VTT의 ``시:분:초.밀리초`` 문자열을 초 단위 float으로 바꾼다."""
     try:
         time_str = time_str.strip().split()[0]
         parts = time_str.split(':')
@@ -48,13 +54,13 @@ def vtt_time_to_seconds(time_str):
         return 0.0
 
 def is_similar(a, b, threshold=0.9):
-    """Check if two strings are similar above a threshold."""
+    """두 문자열의 유사도가 threshold(기본 90%)보다 높은지 확인한다."""
     if a is None or b is None:
         return False
     return SequenceMatcher(None, a, b).ratio() > threshold
 
 def parse_vtt_file(vtt_file: Path):
-    """Parse VTT file and convert it to a cleaned transcript format."""
+    """VTT 파일을 읽어 text/start/duration을 가진 dict 목록으로 변환한다."""
     transcript = []
     last_text = None
     last_start_time = -1.0
@@ -64,9 +70,11 @@ def parse_vtt_file(vtt_file: Path):
             lines = f.readlines()
 
         i = 0
+        # for 대신 while을 쓰는 이유는 한 자막 블록을 읽으며 i를 여러 줄 이동하기 때문이다.
         while i < len(lines):
             line = lines[i].strip()
 
+            # VTT에서 '-->'가 들어간 줄은 시작/종료 시각을 나타낸다.
             if '-->' in line:
                 timestamp_parts = line.split(' --> ')
                 if len(timestamp_parts) != 2:
@@ -86,6 +94,7 @@ def parse_vtt_file(vtt_file: Path):
                 # Collect subtitle text
                 i += 1
                 text_lines = []
+                # 빈 줄은 한 자막 블록의 끝이다. 그 전까지 모든 텍스트 줄을 모은다.
                 while i < len(lines) and lines[i].strip():
                     clean_line = re.sub(r'<.*?>', '', lines[i].strip())  # Remove HTML tags
                     clean_line = re.sub(r'\[.*?\]', '', clean_line)     # Remove square bracket content
@@ -97,6 +106,7 @@ def parse_vtt_file(vtt_file: Path):
 
                 text = ' '.join(text_lines).strip()
 
+                # 자동 자막에는 거의 같은 문장이 반복되므로 중복을 제거한다.
                 if not text or is_similar(text, last_text):
                     continue
                 if last_start_time >= 0 and abs(start_time - last_start_time) < 0.3:
@@ -121,10 +131,13 @@ def parse_vtt_file(vtt_file: Path):
 
 def split_into_chunks(segments, chunk_size=30):
     """
-    Split transcript segments into larger text chunks for embedding.
-    Each chunk merges ~`chunk_size` segments.
+    자막 조각을 chunk_size개씩 묶어 더 큰 임베딩용 청크를 만든다.
+
+    이 함수는 단순 분할 방식이며 현재의 정교한 전처리는
+    scripts/preprocess_captions.py에서 수행한다.
     """
     chunks = []
+    # 슬라이싱 segments[i:i + chunk_size]은 원본 리스트의 일부를 새 리스트로 만든다.
     for i in range(0, len(segments), chunk_size):
         chunk = segments[i:i + chunk_size]
         combined_text = " ".join([seg["text"] for seg in chunk])
