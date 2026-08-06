@@ -31,7 +31,12 @@ logger = logging.getLogger(__name__)
 
 
 def select_subtitle_file(subtitle_files):
-    """받은 VTT 파일 중 요청한 한국어 자막 파일을 고른다."""
+    """여러 VTT 경로 중 한국어 파일 하나를 반환한다.
+
+    ``subtitle_files``는 Path 객체의 리스트다. 예를 들어 파일명이
+    ``영상.ko.vtt``이면 우선순위 0이 되어 선택된다. ``min(..., key=함수)``는
+    파일 자체가 아니라 각 파일에 함수를 적용한 결과를 서로 비교한다.
+    """
     # "ko" 문자열을 ["ko"] 리스트로 바꾸는 list comprehension이다.
     language_order = [
         language.strip() for language in CAPTION_LANGUAGES.split(",") if language.strip()
@@ -51,7 +56,13 @@ def select_subtitle_file(subtitle_files):
 
 
 def fetch_caption_with_ytdlp(video_id: str, title: str, output_dir: Path):
-    """자막을 내려받아 파싱하고 성공하면 True, 실패하면 False를 반환한다."""
+    """영상 하나의 한국어 자막을 내려받아 JSON으로 저장한다.
+
+    이 함수가 직접 YouTube 통신을 구현하지는 않는다. ``cmd`` 리스트를 만든 뒤
+    별도 프로그램인 yt-dlp를 실행한다. 성공 흐름은 다음과 같다:
+    yt-dlp 실행 → 임시 VTT 찾기 → VTT 파싱 → captions JSON 저장 → True 반환.
+    어느 단계든 실패하면 False를 반환해 ``main.py``가 다음 단계를 중단하게 한다.
+    """
     try:
         logger.info(f"🔄 Fetching transcript for {title} ({video_id}) using yt-dlp...")
 
@@ -73,18 +84,24 @@ def fetch_caption_with_ytdlp(video_id: str, title: str, output_dir: Path):
                 video_url
             ]
 
+            # 위 리스트는 터미널에서 다음과 비슷한 명령이 된다.
+            # python -m yt_dlp --write-subs --sub-langs ko ... 영상URL
+
             if YTDLP_COOKIES_FROM_BROWSER:
                 cmd[3:3] = ["--cookies-from-browser", YTDLP_COOKIES_FROM_BROWSER]
 
             # 출력은 result.stdout/stderr에 문자열로 담고 최대 60초만 기다린다.
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
+            # 운영체제 관례상 종료 코드 0은 성공, 0 이외의 값은 실패다.
             if result.returncode == 0:
                 subtitle_files = list(Path(temp_dir).glob("*.vtt"))
 
                 if subtitle_files:
                     subtitle_file = select_subtitle_file(subtitle_files)
                     logger.info("🗣️ Selected subtitle: %s", subtitle_file.name)
+                    # transcript 자료형: [{"text": str, "start": float,
+                    #                       "duration": float}, ...]
                     transcript = parse_vtt_file(subtitle_file)
 
                     if transcript:

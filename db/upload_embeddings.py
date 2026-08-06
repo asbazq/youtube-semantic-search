@@ -33,7 +33,12 @@ def extract_video_info_from_filename(filename: str):
 def prepare_chunks_for_chroma(
     chunks: List[Dict], video_title: str, video_id: str, filename: str
 ):
-    """청크 dict 목록을 ChromaDB가 받을 레코드 dict 목록으로 변환한다."""
+    """청크 리스트를 ChromaDB 저장용 레코드 리스트로 변환한다.
+
+    한 레코드는 세 부분으로 구성된다:
+    ``id``는 레코드 고유 이름, ``embedding``은 검색에 쓰는 숫자 리스트,
+    ``metadata``는 검색 결과 화면에 보여 줄 자막·영상·시간 정보다.
+    """
     records = []
     # enumerate는 (0, 첫 항목), (1, 둘째 항목)처럼 번호와 값을 함께 준다.
     for index, chunk in enumerate(chunks):
@@ -51,6 +56,7 @@ def prepare_chunks_for_chroma(
             # append는 리스트 끝에 새 dict 하나를 추가한다.
             records.append(
                 {
+                    # :04d는 숫자 3을 "0003"처럼 네 자리 문자열로 만든다.
                     "id": f"{video_id}_{index:04d}",
                     "embedding": chunk["embedding"],
                     "metadata": metadata,
@@ -62,7 +68,11 @@ def prepare_chunks_for_chroma(
 
 
 def upload_file_to_chroma(collection, filepath: Path):
-    """임베딩 파일 하나를 읽고 최대 BATCH_SIZE개씩 나눠 업로드한다."""
+    """임베딩 파일 하나를 읽고 최대 BATCH_SIZE개씩 DB에 저장한다.
+
+    ``collection``은 ChromaDB 컬렉션 객체이고 ``filepath``는 읽을 JSON 경로다.
+    반환값은 저장을 시도한 레코드 개수이며, 오류가 발생하면 0이다.
+    """
     try:
         logger.info("Processing %s", filepath.name)
         with filepath.open("r", encoding="utf-8") as file:
@@ -87,6 +97,7 @@ def upload_file_to_chroma(collection, filepath: Path):
 
         # range(시작, 끝, 간격): 0, 100, 200 ... 순서로 반복한다.
         for offset in range(0, len(records), BATCH_SIZE):
+            # offset=100이면 records[100:200], 즉 두 번째 100개를 선택한다.
             batch = records[offset : offset + BATCH_SIZE]
             # upsert = 같은 id가 있으면 갱신(update), 없으면 삽입(insert).
             collection.upsert(

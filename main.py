@@ -38,7 +38,13 @@ def normalize_video_id(value: str) -> str:
     return value.split("&", 1)[0].split("?", 1)[0]
 
 def run_script(command: list):
-    """별도 Python 스크립트를 실행하고 성공 여부를 bool로 반환한다."""
+    """명령 리스트로 자식 프로세스를 실행하고 성공 여부를 반환한다.
+
+    예: ``[python경로, "scripts/fetch_captions.py", 영상ID, 제목]``.
+    현재 ``main.py``가 부모 프로세스이고 새로 실행되는 스크립트가 자식
+    프로세스다. 자식에서 ``SystemExit(1)``이 발생하면 여기서는
+    ``CalledProcessError``가 되어 False를 반환한다.
+    """
     try:
         # 현재 프로세스의 환경 변수를 복사한다. 원본 os.environ은 수정하지 않는다.
         env = os.environ.copy()
@@ -82,10 +88,16 @@ def find_processed_file(video_id: str, video_title: str) -> Optional[str]:
     return None
 
 def full_pipeline(video_id: str, video_title: str) -> bool:
-    """한 영상에 필요한 전체 처리 단계를 실행한다."""
+    """영상 하나를 검색 가능하게 만드는 전체 파이프라인을 실행한다.
+
+    각 단계의 출력 파일이 다음 단계의 입력이 된다:
+    captions JSON → chunks JSON → embeddings JSON → ChromaDB.
+    반환값 True는 모든 단계 성공, False는 중간 단계 실패를 뜻한다.
+    """
     python_exec = sys.executable
 
     # First 3 steps remain the same
+    # 중첩 리스트: 바깥 리스트는 단계 목록, 안쪽 리스트는 한 명령의 인자 목록이다.
     initial_steps = [
         [python_exec, "scripts/fetch_captions.py", video_id, video_title],
         [python_exec, "scripts/preprocess_captions.py"],
@@ -148,6 +160,7 @@ def main():
 
         choice = input("Choose an option (1-3): ").strip()
 
+        # if/elif는 사용자가 고른 메뉴 하나의 코드만 실행한다.
         if choice == "1":
             video_id = normalize_video_id(input("🎥 Enter YouTube Video ID or URL: "))
             video_title = input("📝 Enter a title/label for the video: ").strip()
@@ -162,6 +175,7 @@ def main():
                 continue
 
             query = input("🔍 Enter search query for this video: ").strip()
+            # results는 문자열이 아니라 여러 값을 키로 찾는 dict다.
             results = engine.search_by_video(query, video_id)
 
             # results는 dict이며, 실패 시에는 "error" 키가 들어 있다.

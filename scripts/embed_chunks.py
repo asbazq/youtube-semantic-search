@@ -38,6 +38,14 @@ def embed_chunks_file(input_file: Path, output_file: Path):
     입력 JSON의 청크를 읽고 임베딩을 추가해 출력 JSON으로 저장한다.
 
     Path는 문자열 경로보다 파일 경로 연산을 편리하게 해 주는 객체다.
+
+    입력 청크 하나::
+
+        {"text": "오늘은 파이썬을 배웁니다.", "start": 10.0, ...}
+
+    출력 청크에는 ``"embedding": [0.012, -0.031, ...]``이 추가된다.
+    벡터의 숫자 하나에 사람이 읽을 수 있는 고정 의미가 있는 것은 아니며,
+    전체 숫자 배열 사이의 거리로 문장 의미가 가까운지를 비교한다.
     """
     try:
         logger.info(f"🔄 Embedding: {input_file.name}")
@@ -64,6 +72,8 @@ def embed_chunks_file(input_file: Path, output_file: Path):
             return
 
         # encode는 문장 목록을 2차원 숫자 배열로 바꾼다.
+        # 입력 shape는 문장 N개의 리스트, 출력 shape는 (N, 벡터 차원)이다.
+        # 같은 위치가 서로 대응한다: texts[0]의 결과는 embeddings[0]이다.
         embeddings = model.encode(texts, show_progress_bar=True, convert_to_numpy=True)
 
         for i, idx in enumerate(valid_indices):

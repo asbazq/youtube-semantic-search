@@ -24,7 +24,15 @@ if callable(stderr_reconfigure):
     stderr_reconfigure(encoding="utf-8")
 
 def combine_caption_segments(segments, max_gap=0.5):
-    """앞 자막과의 시간 간격이 max_gap초 이하인 조각들을 한 블록으로 합친다."""
+    """시간상 이어지는 짧은 자막 조각을 하나의 블록으로 합친다.
+
+    ``segments`` 구조 예시::
+
+        [{"text": "오늘은", "start": 0.0, "duration": 0.8}, ...]
+
+    반환하는 블록은 ``duration`` 대신 종료 시각 ``end``를 가진다. 앞 블록의
+    종료와 다음 조각의 시작 사이가 ``max_gap``초 이하면 같은 발화로 본다.
+    """
     if not segments:
         return []
 
@@ -36,14 +44,17 @@ def combine_caption_segments(segments, max_gap=0.5):
         'end': segments[0]['start'] + segments[0]['duration']
     }
 
+    # 첫 원소는 current_block을 만드는 데 썼으므로 두 번째 원소부터 반복한다.
     for segment in segments[1:]:
         # 다음 자막 시작 시각 - 현재 블록 종료 시각 = 두 자막 사이의 공백 시간.
         gap = segment['start'] - current_block['end']
 
         if gap <= max_gap:
+            # 같은 발화: 텍스트와 종료 시각을 현재 블록에 이어 붙인다.
             current_block['text'] += ' ' + segment['text']
             current_block['end'] = segment['start'] + segment['duration']
         else:
+            # 긴 침묵: 현재 블록을 확정하고 다음 자막으로 새 블록을 시작한다.
             combined.append(current_block)
             current_block = {
                 'text': segment['text'],
@@ -89,13 +100,19 @@ def split_korean_sentences(text):
     ]
 
 def create_semantic_chunks(blocks, target_length=30, max_length=60):
-    """여러 블록을 target_length 단어 안팎의 검색용 청크로 묶는다."""
+    """여러 블록을 검색에 사용할 적당한 길이의 청크로 묶는다.
+
+    청크 하나는 ``text/start/end/duration/blocks`` 키를 가진 딕셔너리다.
+    너무 짧으면 의미가 부족하고 너무 길면 여러 주제가 섞이므로 대략
+    ``target_length`` 단어를 목표로 한다.
+    """
     chunks = []
     current_chunk = {
         'text': '',
         'start': None,
         'blocks': []
     }
+    # 아직 완성되지 않은 current_chunk에 들어 있는 단어 수다.
     word_count = 0
 
     for block in blocks:
@@ -103,6 +120,7 @@ def create_semantic_chunks(blocks, target_length=30, max_length=60):
         block_words = len(punctuated_text.split())
 
         if current_chunk['start'] is None:
+            # 현재 청크에 처음 들어온 블록의 시작 시각을 기억한다.
             current_chunk['start'] = block['start']
 
         # 현재 블록을 더했을 때 목표 길이를 넘으면 기존 청크를 먼저 완성한다.
@@ -111,6 +129,7 @@ def create_semantic_chunks(blocks, target_length=30, max_length=60):
             current_chunk['duration'] = current_chunk['end'] - current_chunk['start']
             # list comprehension으로 각 블록 텍스트를 얻고 join으로 하나의 문자열을 만든다.
             current_chunk['text'] = ' '.join([add_punctuation(b['text']) for b in current_chunk['blocks']])
+            # 완성된 딕셔너리를 최종 결과 리스트에 넣는다.
             chunks.append(current_chunk)
 
             current_chunk = {
@@ -132,7 +151,13 @@ def create_semantic_chunks(blocks, target_length=30, max_length=60):
     return chunks
 
 def split_long_blocks(blocks, max_duration=30.0, max_words=80):
-    """30초/80단어를 넘는 블록을 더 작은 문장 단위로 나눈다."""
+    """너무 긴 블록을 문장 또는 단어 묶음으로 나눈다.
+
+    짧은 블록은 그대로 ``result``에 추가한다. 긴 블록은 먼저 문장부호로
+    나누고, 문장부호가 없으면 ``max_words // 2`` 단어씩 강제로 나눈다.
+    나뉜 문장의 정확한 타임스탬프는 알 수 없으므로 전체 시간을 문장 수로
+    균등 분배해 근삿값을 만든다.
+    """
     result = []
 
     for block in blocks:
@@ -152,6 +177,7 @@ def split_long_blocks(blocks, max_duration=30.0, max_words=80):
             for i in range(0, len(words), max_words // 2):
                 sentences.append(' '.join(words[i:i + max_words // 2]))
 
+        # 예: 20초짜리 블록에서 문장 4개를 찾았다면 문장당 5초로 추정한다.
         duration_per_sentence = (block['end'] - block['start']) / len(sentences)
         current_time = block['start']
 
@@ -167,7 +193,12 @@ def split_long_blocks(blocks, max_duration=30.0, max_words=80):
     return result
 
 def process_caption_file(input_file, output_file):
-    """자막 JSON 하나에 전체 전처리를 적용하고 생성된 청크를 반환한다."""
+    """자막 JSON 하나에 전처리 3단계를 적용하고 청크 리스트를 반환한다.
+
+    이 함수는 작은 함수들을 순서대로 연결하는 조정자 역할을 한다:
+    원본 segments → combined_blocks → split_blocks → 최종 chunks.
+    디버거의 Variables 창에서 각 변수의 리스트 길이를 비교하면 흐름이 보인다.
+    """
     print(f"🔄 Processing {input_file}...")
 
     with open(input_file, encoding="utf-8") as f:
@@ -211,6 +242,8 @@ if __name__ == "__main__":
     chunks_dir = Path("data/chunks")
     chunks_dir.mkdir(parents=True, exist_ok=True)
 
+    # glob("*.json")은 폴더 안에서 확장자가 json인 Path들을 찾는다.
+    # sorted로 순서를 고정하면 실행할 때마다 같은 순서로 처리되어 확인하기 쉽다.
     caption_files = sorted(captions_dir.glob("*.json"))
 
     if not caption_files:
@@ -222,6 +255,7 @@ if __name__ == "__main__":
     processed_count = 0
 
     for input_file in caption_files:
+        # Path의 / 연산자는 경로를 연결한다. stem은 확장자를 뺀 파일명이다.
         output_file = chunks_dir / f"processed_{input_file.stem}.json"
 
         # 입력 파일이 출력보다 오래됐으면 이미 최신 처리 결과가 있으므로 건너뛴다.
@@ -239,6 +273,7 @@ if __name__ == "__main__":
         processed_count += 1
 
         print(f"\n🎯 Chunk Statistics:")
+        # 각 청크를 반복해 단어 수만 모은 새 리스트를 만드는 표현식이다.
         word_counts = [len(chunk['text'].split()) for chunk in chunks]
         durations = [chunk['duration'] for chunk in chunks]
 

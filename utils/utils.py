@@ -37,17 +37,25 @@ def save_json(data, filepath):
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 def vtt_time_to_seconds(time_str):
-    """VTT의 ``시:분:초.밀리초`` 문자열을 초 단위 float으로 바꾼다."""
+    """VTT의 ``시:분:초.밀리초`` 문자열을 초 단위 float으로 바꾼다.
+
+    예: ``"00:01:02.500"`` → ``62.5``. 문자열을 ``:``과 ``.``으로
+    차례로 나눈 뒤 각 부분을 숫자로 바꾸는 과정을 관찰하면 된다.
+    """
     try:
+        # 종료 시간 뒤에 설정 문자열이 붙는 VTT도 있어 첫 번째 값만 사용한다.
         time_str = time_str.strip().split()[0]
+        # "00:01:02.500" -> ["00", "01", "02.500"]
         parts = time_str.split(':')
         if len(parts) != 3:
             raise ValueError("Invalid time format")
         hours = int(parts[0])
         minutes = int(parts[1])
+        # "02.500" -> ["02", "500"]
         seconds_parts = parts[2].split('.')
         seconds = int(seconds_parts[0])
         milliseconds = int(seconds_parts[1]) if len(seconds_parts) > 1 else 0
+        # 모든 단위를 초로 통일한 뒤 더한다.
         return hours * 3600 + minutes * 60 + seconds + milliseconds / 1000
     except Exception as e:
         logger.warning(f"⚠️ Failed to parse time: '{time_str}' ({e})")
@@ -60,7 +68,20 @@ def is_similar(a, b, threshold=0.9):
     return SequenceMatcher(None, a, b).ratio() > threshold
 
 def parse_vtt_file(vtt_file: Path):
-    """VTT 파일을 읽어 text/start/duration을 가진 dict 목록으로 변환한다."""
+    """VTT 파일을 읽어 자막 딕셔너리의 리스트로 변환한다.
+
+    입력 VTT 한 블록 예시::
+
+        00:00:01.000 --> 00:00:03.000
+        안녕하세요
+
+    반환 리스트의 원소 예시::
+
+        {"text": "안녕하세요", "start": 1.0, "duration": 2.0}
+
+    ``transcript``는 최종 결과 리스트이고, 반복할 때마다 자막 딕셔너리
+    하나가 ``append``된다.
+    """
     transcript = []
     last_text = None
     last_start_time = -1.0
@@ -86,7 +107,11 @@ def parse_vtt_file(vtt_file: Path):
 
                 if end_time <= start_time:
                     logger.warning(f"⚠️ Invalid duration in VTT: start={start_time}, end={end_time}")
-                    duration = 3.0
+                    # 임시로 3초짜리 자막이라고 가정
+                    # duration = 3.0
+                    # 잘못된 시간 건너 뜀
+                    i += 1
+                    continue;
                 else:
                     duration = round(end_time - start_time, 3)
                     duration = max(duration, 0.5)
@@ -113,6 +138,7 @@ def parse_vtt_file(vtt_file: Path):
                     logger.debug(f"⏩ Skipping overlapping segment at {start_time}")
                     continue
 
+                # 하나의 자막 정보를 dict로 묶어 결과 list의 끝에 추가한다.
                 transcript.append({
                     'text': text,
                     'start': start_time,
@@ -139,7 +165,7 @@ def split_into_chunks(segments, chunk_size=30):
     chunks = []
     # 슬라이싱 segments[i:i + chunk_size]은 원본 리스트의 일부를 새 리스트로 만든다.
     for i in range(0, len(segments), chunk_size):
-        chunk = segments[i:i + chunk_size]
+        chunk = segments[i:i + chunk_size] # 리스트[시작위치:종료위치] Python 슬라이싱은 가능한 마지막 원소까지만 가져옴
         combined_text = " ".join([seg["text"] for seg in chunk])
         chunks.append({
             "text": combined_text,

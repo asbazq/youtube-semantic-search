@@ -44,7 +44,12 @@ class YouTubeSemanticSearch:
         self.collection = get_chroma_collection()
 
     def embed_query(self, query: str) -> Optional[List[float]]:
-        """질문 문자열을 숫자 리스트로 변환한다. 실패하면 None을 반환한다."""
+        """검색어 한 문장을 자막과 비교 가능한 숫자 리스트로 바꾼다.
+
+        모델은 여러 문장을 한꺼번에 받을 수 있어 ``[query]``처럼 리스트로
+        전달한다. 결과도 2차원 배열이므로 ``[0]``으로 첫 문장의 벡터를 꺼낸다.
+        ``Optional[List[float]]``는 성공 시 실수 리스트, 실패 시 None이라는 뜻이다.
+        """
         if not query or not query.strip():
             logger.warning("Empty query provided")
             return None
@@ -59,9 +64,11 @@ class YouTubeSemanticSearch:
 
         이름 앞의 밑줄은 클래스 내부에서 주로 쓰는 메서드라는 관례다.
         """
+        # top_k는 최대 몇 개를 받고 싶은지 나타낸다. DB가 비어 있으면 즉시 끝낸다.
         count = self.collection.count()
         if count == 0:
             return []
+        # where=None이면 전체 영상, where에 video_id 조건이 있으면 해당 영상만 찾는다.
         response = self.collection.query(
             query_embeddings=[embedding],
             n_results=min(top_k, count),
@@ -74,6 +81,8 @@ class YouTubeSemanticSearch:
         metadatas = metadatas_list[0] if metadatas_list else []
         distances = distances_list[0] if distances_list else []
         # zip은 같은 위치의 metadata와 distance를 한 쌍으로 묶는다.
+        # cosine distance는 작을수록 유사하므로 1-distance로 큰 점수로 바꾼다.
+        # 리스트 컴프리헨션 끝의 if는 MIN_SCORE 이하 결과를 제외한다.
         return [
             (metadata, 1.0 - distance)
             for metadata, distance in zip(metadatas, distances)
@@ -99,7 +108,13 @@ class YouTubeSemanticSearch:
             return {"error": str(error)}
 
     def search_by_video(self, query: str, video_id: str, top_k: int = 10) -> Dict[str, Any]:
-        """where 조건으로 특정 영상의 자막만 검색한다."""
+        """특정 영상 안에서만 검색하고 결과 딕셔너리를 반환한다.
+
+        반환 예시::
+
+            {"query": "고민 상담", "video_id": "abc",
+             "total_found": 2, "results": [{...}, {...}]}
+        """
         embedding = self.embed_query(query)
         if embedding is None:
             return {"error": "Failed to embed query"}
