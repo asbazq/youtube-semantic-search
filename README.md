@@ -76,9 +76,12 @@ python main.py
 ```
 
 Options:
-- `1`: Process and upload a new video
-- `2`: View uploaded videos
-- `3`: Exit
+- `1`: Process and upload one video
+- `2`: Process and upload multiple videos
+- `3`: Process every available video in a YouTube playlist
+- `4`: Search across every uploaded video and print timestamp links
+- `5`: View uploaded videos
+- `6`: Exit
 
 ## 🌐 Web UI (Gradio - Optional)
 

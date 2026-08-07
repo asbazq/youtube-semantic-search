@@ -3,9 +3,11 @@
 import argparse
 import logging
 import os
+import re
 import subprocess
 import sys
 from datetime import timedelta
+from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional
 
 from sentence_transformers import SentenceTransformer
@@ -16,7 +18,27 @@ from db.chroma_setup import get_chroma_collection
 
 # 자막 벡터를 만들 때 사용한 모델과 반드시 같아야 한다.
 MODEL_NAME = "paraphrase-multilingual-mpnet-base-v2"
-MIN_SCORE = 0.3
+MIN_SCORE = 0.45
+RELATIVE_SCORE_DROP = 0.12
+FUZZY_TOKEN_SCORE = 0.75
+
+
+def decompose_hangul(value: str) -> tuple[int, ...]:
+    """한글 음절을 초성·중성·종성 번호로 풀어 받침 오타도 비교 가능하게 한다."""
+    decomposed = []
+    for character in value:
+        code = ord(character)
+        if 0xAC00 <= code <= 0xD7A3:
+            syllable = code - 0xAC00
+            initial = syllable // 588
+            medial = (syllable % 588) // 28
+            final = syllable % 28
+            decomposed.extend((100 + initial, 200 + medial))
+            if final:
+                decomposed.append(300 + final)
+        else:
+            decomposed.append(1000 + code)
+    return tuple(decomposed)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
@@ -59,7 +81,7 @@ class YouTubeSemanticSearch:
             logger.error("Embedding error for query '%s': %s", query, error)
             return None
 
-    def _query(self, embedding: List[float], top_k: int, where=None):
+    def _query(self, embedding: List[float], top_k: int, where=None, min_score=MIN_SCORE):
         """ChromaDB에서 가까운 벡터를 찾아 (메타데이터, 점수) 목록으로 반환한다.
 
         이름 앞의 밑줄은 클래스 내부에서 주로 쓰는 메서드라는 관례다.
@@ -83,11 +105,76 @@ class YouTubeSemanticSearch:
         # zip은 같은 위치의 metadata와 distance를 한 쌍으로 묶는다.
         # cosine distance는 작을수록 유사하므로 1-distance로 큰 점수로 바꾼다.
         # 리스트 컴프리헨션 끝의 if는 MIN_SCORE 이하 결과를 제외한다.
-        return [
+        raw_matches = [
             (metadata, 1.0 - distance)
             for metadata, distance in zip(metadatas, distances)
-            if 1.0 - distance > MIN_SCORE
         ]
+        matches = [match for match in raw_matches if match[1] >= min_score]
+        if not matches:
+            # 기준보다 낮아도 검색 결과 자체는 보여 주되 최대 3개만 반환한다.
+            return raw_matches[:3]
+
+        # 최상위 결과와 점수 차이가 지나치게 큰 결과까지 개수 채우기로 내보내지 않는다.
+        relative_cutoff = matches[0][1] - RELATIVE_SCORE_DROP
+        return [match for match in matches if match[1] >= relative_cutoff]
+
+    def _fuzzy_keyword_matches(self, query: str, top_k: int, where=None):
+        """짧은 검색어와 철자가 비슷한 실제 자막 단어가 있는 청크를 찾는다."""
+        query_token = re.sub(r"[^0-9A-Za-z가-힣]", "", query.strip()).lower()
+        if not query_token or " " in query.strip() or len(query_token) > 10:
+            return []
+        query_phonemes = decompose_hangul(query_token)
+
+        get_args = {"include": ["metadatas", "documents"]}
+        if where is not None:
+            get_args["where"] = where
+        stored = self.collection.get(**get_args)
+        matches = []
+
+        for metadata, document in zip(
+            stored.get("metadatas") or [], stored.get("documents") or []
+        ):
+            tokens = re.findall(r"[0-9A-Za-z가-힣]+", (document or "").lower())
+            best_ratio = max(
+                (
+                    SequenceMatcher(
+                        None, query_phonemes, decompose_hangul(token)
+                    ).ratio()
+                    for token in tokens
+                ),
+                default=0.0,
+            )
+            if best_ratio >= FUZZY_TOKEN_SCORE:
+                matches.append((metadata, best_ratio))
+
+        matches.sort(key=lambda match: match[1], reverse=True)
+        return matches[:top_k]
+
+    @staticmethod
+    def _merge_matches(primary, secondary, top_k):
+        """철자 검색을 우선하고 같은 영상·시간의 의미 검색 결과는 중복 제거한다."""
+        merged = []
+        seen = set()
+        for metadata, score in [*primary, *secondary]:
+            key = (metadata.get("video_id"), metadata.get("start_time"))
+            if key in seen:
+                continue
+            video_id = metadata.get("video_id")
+            start = float(metadata.get("start_time", 0))
+            end = float(metadata.get("end_time", start))
+            overlaps_existing = any(
+                existing.get("video_id") == video_id
+                and start < float(existing.get("end_time", 0))
+                and float(existing.get("start_time", 0)) < end
+                for existing, _ in merged
+            )
+            if overlaps_existing:
+                continue
+            merged.append((metadata, score))
+            seen.add(key)
+            if len(merged) >= top_k:
+                break
+        return merged
 
     def search(self, query: str, top_k: int = 10, include_metadata: bool = True) -> Dict[str, Any]:
         """모든 영상에서 검색하고 화면에 사용하기 쉬운 dict로 반환한다."""
@@ -96,7 +183,9 @@ class YouTubeSemanticSearch:
         if embedding is None:
             return {"error": "Failed to embed query"}
         try:
-            matches = self._query(embedding, top_k)
+            fuzzy_matches = self._fuzzy_keyword_matches(query, top_k)
+            semantic_matches = self._query(embedding, top_k)
+            matches = self._merge_matches(fuzzy_matches, semantic_matches, top_k)
             results = {"query": query, "total_found": len(matches), "results": []}
             for metadata, score in matches:
                 raw_video_id = metadata.get("video_id", "")
@@ -119,7 +208,14 @@ class YouTubeSemanticSearch:
         if embedding is None:
             return {"error": "Failed to embed query"}
         try:
-            matches = self._query(embedding, top_k, where={"video_id": {"$eq": video_id}})
+            where = {"video_id": {"$eq": video_id}}
+            fuzzy_matches = self._fuzzy_keyword_matches(query, top_k, where=where)
+            semantic_matches = self._query(
+                embedding,
+                top_k,
+                where=where,
+            )
+            matches = self._merge_matches(fuzzy_matches, semantic_matches, top_k)
             results = {"query": query, "video_id": video_id, "total_found": len(matches), "results": []}
             for metadata, score in matches:
                 results["results"].append(self._result(metadata, score, video_id))
@@ -189,7 +285,7 @@ def interactive_search():
                 print(f"\n{index}. {result['video_title']}")
                 print(f"   Time: {format_time(result['start_time'])} - {format_time(result['end_time'])}")
                 print(f"   URL: {result['youtube_url']}")
-                print(f"   Text: {result['text'][:200]}...")
+                print(f"   Text: {result['text']}")
 
 
 if __name__ == "__main__":

@@ -116,8 +116,7 @@ def create_semantic_chunks(blocks, target_length=30, max_length=60):
     word_count = 0
 
     for block in blocks:
-        punctuated_text = add_punctuation(block['text'])
-        block_words = len(punctuated_text.split())
+        block_words = len(block['text'].split())
 
         if current_chunk['start'] is None:
             # 현재 청크에 처음 들어온 블록의 시작 시각을 기억한다.
@@ -127,17 +126,23 @@ def create_semantic_chunks(blocks, target_length=30, max_length=60):
         if word_count > 0 and (word_count + block_words > target_length or word_count > max_length):
             current_chunk['end'] = current_chunk['blocks'][-1]['end']
             current_chunk['duration'] = current_chunk['end'] - current_chunk['start']
-            # list comprehension으로 각 블록 텍스트를 얻고 join으로 하나의 문자열을 만든다.
-            current_chunk['text'] = ' '.join([add_punctuation(b['text']) for b in current_chunk['blocks']])
+            # 자동 자막의 각 줄은 문장이 아니라 화면 표시 단위일 수 있으므로
+            # 줄마다 마침표를 붙이지 않고 청크 전체를 합친 뒤 한 번만 붙인다.
+            current_chunk['text'] = add_punctuation(
+                ' '.join(b['text'] for b in current_chunk['blocks'])
+            )
             # 완성된 딕셔너리를 최종 결과 리스트에 넣는다.
             chunks.append(current_chunk)
 
+            # 다음 청크에 직전 자막 한 줄을 겹쳐 넣으면 검색 결과가
+            # "바랍니다" 같은 문장 중간 단어부터 시작하는 일을 줄일 수 있다.
+            overlap_blocks = current_chunk['blocks'][-1:]
             current_chunk = {
                 'text': '',
-                'start': block['start'],
-                'blocks': [block]
+                'start': overlap_blocks[0]['start'] if overlap_blocks else block['start'],
+                'blocks': overlap_blocks + [block]
             }
-            word_count = block_words
+            word_count = sum(len(item['text'].split()) for item in current_chunk['blocks'])
         else:
             current_chunk['blocks'].append(block)
             word_count += block_words
@@ -145,10 +150,46 @@ def create_semantic_chunks(blocks, target_length=30, max_length=60):
     if current_chunk['blocks']:
         current_chunk['end'] = current_chunk['blocks'][-1]['end']
         current_chunk['duration'] = current_chunk['end'] - current_chunk['start']
-        current_chunk['text'] = ' '.join([add_punctuation(b['text']) for b in current_chunk['blocks']])
+        current_chunk['text'] = add_punctuation(
+            ' '.join(b['text'] for b in current_chunk['blocks'])
+        )
         chunks.append(current_chunk)
 
-    return chunks
+    return merge_short_chunks(chunks)
+
+
+def merge_short_chunks(chunks, min_words=10, min_duration=3.0, max_gap=3.0):
+    """검색 의미가 부족한 짧은 청크를 시간상 가까운 앞뒤 청크와 합친다."""
+    merged = []
+
+    for index, original in enumerate(chunks):
+        chunk = {**original, "blocks": list(original.get("blocks", []))}
+        is_short = (
+            len(chunk.get("text", "").split()) < min_words
+            or chunk.get("duration", 0) < min_duration
+        )
+
+        if is_short and merged and chunk["start"] - merged[-1]["end"] <= max_gap:
+            previous = merged[-1]
+            previous["text"] = f"{previous['text']} {chunk['text']}".strip()
+            previous["end"] = chunk["end"]
+            previous["duration"] = previous["end"] - previous["start"]
+            previous["blocks"].extend(chunk["blocks"])
+            continue
+
+        # 첫 청크가 너무 짧으면 다음 청크 앞에 붙여 다음 반복에서 함께 처리한다.
+        if is_short and not merged and index + 1 < len(chunks):
+            next_chunk = chunks[index + 1]
+            if next_chunk["start"] - chunk["end"] <= max_gap:
+                next_chunk["text"] = f"{chunk['text']} {next_chunk['text']}".strip()
+                next_chunk["start"] = chunk["start"]
+                next_chunk["duration"] = next_chunk["end"] - next_chunk["start"]
+                next_chunk["blocks"] = chunk["blocks"] + next_chunk.get("blocks", [])
+                continue
+
+        merged.append(chunk)
+
+    return merged
 
 def split_long_blocks(blocks, max_duration=30.0, max_words=80):
     """너무 긴 블록을 문장 또는 단어 묶음으로 나눈다.
@@ -237,6 +278,9 @@ def chunk_captions(video_id: str, title: str):
     return True
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Preprocess caption JSON files")
+    parser.add_argument("--overwrite", action="store_true", help="Reprocess every caption file")
+    args = parser.parse_args()
     # 이 아래는 함수 정의가 아니라 스크립트를 직접 실행할 때의 실제 작업 흐름이다.
     captions_dir = Path("data/captions")
     chunks_dir = Path("data/chunks")
@@ -259,7 +303,7 @@ if __name__ == "__main__":
         output_file = chunks_dir / f"processed_{input_file.stem}.json"
 
         # 입력 파일이 출력보다 오래됐으면 이미 최신 처리 결과가 있으므로 건너뛴다.
-        if output_file.exists():
+        if output_file.exists() and not args.overwrite:
             if input_file.stat().st_mtime <= output_file.stat().st_mtime:
                 print(f"⏩ Skipping {input_file.name} (already processed)")
                 continue
