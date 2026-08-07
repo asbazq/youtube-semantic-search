@@ -23,6 +23,9 @@ load_dotenv()
 DATA_DIR = Path("data/captions")
 VIDEO_LIST_FILE = Path("video_ids.json")
 CAPTION_LANGUAGES = "ko"
+# 브라우저에 저장된 YouTube 로그인 쿠키를 yt-dlp가 사용할지 정하는 환경변수
+# ex) chrom, firefox 
+# 계정 정보를 가져오는게 아닌 브라우저의 로그인 쿠기를 읽음
 YTDLP_COOKIES_FROM_BROWSER = os.getenv("YTDLP_COOKIES_FROM_BROWSER")
 
 # --- Logging Setup ---
@@ -75,12 +78,12 @@ def fetch_caption_with_ytdlp(video_id: str, title: str, output_dir: Path):
                 sys.executable,
                 "-m",
                 "yt_dlp",
-                "--write-subs",
-                "--write-auto-subs",
-                "--sub-langs", CAPTION_LANGUAGES,
-                "--sub-format", "vtt",
-                "--skip-download",
-                "--output", f"{temp_dir}/%(title)s.%(ext)s",
+                "--write-subs",                                 # 사람이 등록한 자막
+                "--write-auto-subs",                            # YouTube 자동 생성 자막
+                "--sub-langs", CAPTION_LANGUAGES,               # 한국어만 선택
+                "--sub-format", "vtt",                          # 자막을 VTT 형식으로 저장
+                "--skip-download",                              # 영상 파일은 다운로드하지 않음
+                "--output", f"{temp_dir}/%(title)s.%(ext)s",    # temp_dir 안에 영상제목.언어코드.vtt 로 저장
                 video_url
             ]
 
@@ -91,6 +94,7 @@ def fetch_caption_with_ytdlp(video_id: str, title: str, output_dir: Path):
                 cmd[3:3] = ["--cookies-from-browser", YTDLP_COOKIES_FROM_BROWSER]
 
             # 출력은 result.stdout/stderr에 문자열로 담고 최대 60초만 기다린다.
+            # subprocess는 Python 코드 안에서 터미널 명령실행
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
 
             # 운영체제 관례상 종료 코드 0은 성공, 0 이외의 값은 실패다.
