@@ -38,28 +38,42 @@ def combine_caption_segments(segments, max_gap=0.5):
 
     combined = []
     # 첫 자막으로 현재 작업 중인 블록을 초기화한다.
+    def segment_end(index):
+        """짧게 잘린 자동 자막의 종료 시각을 다음 자막 시작까지 늘린다."""
+        segment = segments[index]
+        declared_end = segment['start'] + segment['duration']
+        if index + 1 >= len(segments):
+            return declared_end
+
+        # YouTube 자동 자막은 화면에 머문 시간과 무관하게 duration이 0.5초로
+        # 내려오는 경우가 있다. 단, 긴 침묵은 발화로 오인하지 않는다.
+        next_start = segments[index + 1]['start']
+        if segment['duration'] <= 0.5 and next_start - declared_end <= 5.0:
+            return max(declared_end, next_start)
+        return declared_end
+
     current_block = {
         'text': segments[0]['text'],
         'start': segments[0]['start'],
-        'end': segments[0]['start'] + segments[0]['duration']
+        'end': segment_end(0)
     }
 
     # 첫 원소는 current_block을 만드는 데 썼으므로 두 번째 원소부터 반복한다.
-    for segment in segments[1:]:
+    for index, segment in enumerate(segments[1:], start=1):
         # 다음 자막 시작 시각 - 현재 블록 종료 시각 = 두 자막 사이의 공백 시간.
         gap = segment['start'] - current_block['end']
 
         if gap <= max_gap:
             # 같은 발화: 텍스트와 종료 시각을 현재 블록에 이어 붙인다.
             current_block['text'] += ' ' + segment['text']
-            current_block['end'] = segment['start'] + segment['duration']
+            current_block['end'] = segment_end(index)
         else:
             # 긴 침묵: 현재 블록을 확정하고 다음 자막으로 새 블록을 시작한다.
             combined.append(current_block)
             current_block = {
                 'text': segment['text'],
                 'start': segment['start'],
-                'end': segment['start'] + segment['duration']
+                'end': segment_end(index)
             }
 
     combined.append(current_block)
@@ -85,19 +99,62 @@ def add_punctuation(text):
 
 
 def split_korean_sentences(text):
-    """한국어 문장부호 뒤의 공백을 기준으로 문장을 나눈다.
-
-    문장부호가 없는 자동 자막은 하나의 문장으로 남는다. 그러면
-    ``split_long_blocks``가 아래에서 단어 수를 기준으로 다시 나눈다.
-    """
+    """문장부호와 흔한 한국어 종결 표현을 기준으로 문장을 나눈다."""
     if not text or not text.strip():
         return []
 
-    return [
-        sentence.strip()
-        for sentence in re.split(r'(?<=[.!?。！？])\s+', text.strip())
-        if sentence.strip()
-    ]
+    # 자동 자막에는 마침표가 거의 없다. 조사가 붙을 수 있는 명사보다
+    # 비교적 확실한 서술어 종결형만 사용해 과도한 분할을 피한다.
+    ending_pattern = re.compile(
+        r"(?:(?<=[.!?。！？])|"
+        r"(?<=니다)|(?<=습니다)|(?<=입니다)|(?<=합니다)|(?<=됩니다)|"
+        r"(?<=없습니다)|(?<=있습니다)|(?<=겠습니다)|"
+        r"(?<=하세요)|(?<=보세요)|(?<=주세요)|"
+        r"(?<=됩니다)|(?<=했어요)|(?<=해요)|(?<=예요)|(?<=이에요)|"
+        r"(?<=겠죠)|(?<=하죠)|(?<=되죠)|(?<=인가요)|(?<=할까요)|"
+        # 평문 종결형. 단순히 '다' 전체를 경계로 쓰면 '보다', '마다' 같은
+        # 단어도 잘리므로 실제 서술어에서 자주 쓰는 형태만 명시한다.
+        r"(?<=한다)|(?<=된다)|(?<=있다)|(?<=없다)|(?<=이다)|(?<=아니다)|"
+        r"(?<=했다)|(?<=됐다)|(?<=였다)|(?<=이었다)|(?<=겠다)|"
+        r"(?<=싶다)|(?<=같다)|(?<=맞다)|(?<=준다)|(?<=간다)|(?<=온다))\s+"
+    )
+    raw_sentences = []
+    for part in ending_pattern.split(text.strip()):
+        words = part.split()
+        current_words = []
+        for word in words:
+            current_words.append(word)
+            clean_word = word.rstrip('.!?。！？')
+            # 평문은 활용 형태가 매우 많아 마지막 '다'를 공통 경계로 본다.
+            # 조사·비교 표현인 '마다', '보다'는 문장 중간에서 흔하므로 제외한다.
+            is_plain_ending = (
+                clean_word.endswith('다')
+                and not clean_word.endswith(('마다', '보다'))
+            )
+            # 해요체는 축약형(펴요, 봐요, 줘요)이 다양해 끝의 '요'를 본다.
+            # 자막에서 문장 중간에 자주 나오는 '필요', '주요'는 제외한다.
+            is_haeyo_ending = (
+                clean_word.endswith('요')
+                and clean_word not in {'요', '필요', '주요'}
+                and not clean_word.endswith(('필요', '주요'))
+            )
+            if word[-1] in '.!?。！？' or is_plain_ending or is_haeyo_ending:
+                raw_sentences.append(' '.join(current_words))
+                current_words = []
+        if current_words:
+            raw_sentences.append(' '.join(current_words))
+
+    sentences = []
+    for raw_sentence in raw_sentences:
+        sentence = raw_sentence.strip()
+        if not sentence:
+            continue
+        # 원문에 있는 문장부호는 보존한다. 한국어 종결형으로 경계를 찾은
+        # 자동 자막에는 마침표를 보충해 청크 안에서도 문장 경계가 보이게 한다.
+        if sentence[-1] not in '.!?。！？':
+            sentence += '.'
+        sentences.append(sentence)
+    return sentences
 
 def create_semantic_chunks(blocks, target_length=30, max_length=60):
     """여러 블록을 검색에 사용할 적당한 길이의 청크로 묶는다.
@@ -122,8 +179,16 @@ def create_semantic_chunks(blocks, target_length=30, max_length=60):
             # 현재 청크에 처음 들어온 블록의 시작 시각을 기억한다.
             current_chunk['start'] = block['start']
 
-        # 현재 블록을 더했을 때 목표 길이를 넘으면 기존 청크를 먼저 완성한다.
-        if word_count > 0 and (word_count + block_words > target_length or word_count > max_length):
+        # 문장 블록은 쪼개지 않는다. 목표 길이에 도달했거나 다음 문장을
+        # 추가하면 최대 길이를 넘을 때, 현재 문장 경계에서 청크를 닫는다.
+        should_close = (
+            word_count > 0
+            and (
+                word_count >= target_length
+                or word_count + block_words > max_length
+            )
+        )
+        if should_close:
             current_chunk['end'] = current_chunk['blocks'][-1]['end']
             current_chunk['duration'] = current_chunk['end'] - current_chunk['start']
             # 자동 자막의 각 줄은 문장이 아니라 화면 표시 단위일 수 있으므로
@@ -134,15 +199,15 @@ def create_semantic_chunks(blocks, target_length=30, max_length=60):
             # 완성된 딕셔너리를 최종 결과 리스트에 넣는다.
             chunks.append(current_chunk)
 
-            # 다음 청크에 직전 자막 한 줄을 겹쳐 넣으면 검색 결과가
-            # "바랍니다" 같은 문장 중간 단어부터 시작하는 일을 줄일 수 있다.
-            overlap_blocks = current_chunk['blocks'][-1:]
+            # 이제 block 자체가 완결된 문장이므로 이전 문장을 중복하지 않는다.
+            # 겹침은 검색 결과와 타임스탬프에 같은 문장을 반복 노출시킨다.
+            overlap_blocks = []
             current_chunk = {
                 'text': '',
-                'start': overlap_blocks[0]['start'] if overlap_blocks else block['start'],
-                'blocks': overlap_blocks + [block]
+                'start': block['start'],
+                'blocks': [block]
             }
-            word_count = sum(len(item['text'].split()) for item in current_chunk['blocks'])
+            word_count = block_words
         else:
             current_chunk['blocks'].append(block)
             word_count += block_words
@@ -203,33 +268,61 @@ def split_long_blocks(blocks, max_duration=30.0, max_words=80):
 
     for block in blocks:
         block_words = len(block['text'].split())
-        if block['end'] - block['start'] <= max_duration and block_words <= max_words:
+        text = block['text']
+        # 길이와 관계없이 문장 경계를 먼저 찾는다. 짧은 발화 안에도 여러
+        # 문장이 있을 수 있고, 이것이 의미 청크의 가장 좋은 경계다.
+        sentences = split_korean_sentences(text)
+
+        # 종결 표현이 오랫동안 나오지 않는 구어체 자막도 있다. 찾은 문장 중
+        # 지나치게 긴 것만 단어 묶음으로 나눠 임베딩 청크가 비대해지지 않게 한다.
+        bounded_sentences = []
+        fallback_size = max_words // 2
+        for sentence in sentences:
+            words = sentence.split()
+            if len(words) <= max_words:
+                bounded_sentences.append(sentence)
+                continue
+            bounded_sentences.extend(
+                ' '.join(words[index:index + fallback_size])
+                for index in range(0, len(words), fallback_size)
+            )
+        sentences = bounded_sentences
+
+        is_manageable = (
+            block['end'] - block['start'] <= max_duration
+            and block_words <= max_words
+        )
+        if is_manageable and len(sentences) <= 1:
             result.append(block)
             continue
-
-        text = block['text']
-        # 한국어 문장부호를 기준으로 나누므로 외부 토크나이저가 필요 없다.
-        sentences = split_korean_sentences(text)
 
         if len(sentences) <= 1:
             words = text.split()
             sentences = []
-            # 문장 경계를 찾지 못하면 최대 단어 수의 절반씩 강제로 자른다.
-            for i in range(0, len(words), max_words // 2):
-                sentences.append(' '.join(words[i:i + max_words // 2]))
+            # 문장 경계를 찾지 못할 때만 단어 수를 최후의 안전장치로 쓴다.
+            for i in range(0, len(words), fallback_size):
+                sentences.append(' '.join(words[i:i + fallback_size]))
 
-        # 예: 20초짜리 블록에서 문장 4개를 찾았다면 문장당 5초로 추정한다.
-        duration_per_sentence = (block['end'] - block['start']) / len(sentences)
+        # 문장 길이에 비례해 시간을 배분한다. 같은 시간을 균등 배분하는 것보다
+        # 긴 문장의 타임스탬프가 실제 발화 구간에 가까워진다.
+        total_weight = sum(max(len(sentence), 1) for sentence in sentences)
+        block_duration = block['end'] - block['start']
         current_time = block['start']
 
-        for sentence in sentences:
+        for index, sentence in enumerate(sentences):
             if sentence.strip():
+                if index == len(sentences) - 1:
+                    sentence_end = block['end']
+                else:
+                    sentence_end = current_time + (
+                        block_duration * max(len(sentence), 1) / total_weight
+                    )
                 result.append({
                     'text': sentence.strip(),
                     'start': current_time,
-                    'end': current_time + duration_per_sentence
+                    'end': sentence_end
                 })
-                current_time += duration_per_sentence
+                current_time = sentence_end
 
     return result
 

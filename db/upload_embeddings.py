@@ -54,39 +54,9 @@ def prepare_chunks_for_chroma(
     # enumerate는 (0, 첫 항목), (1, 둘째 항목)처럼 번호와 값을 함께 준다.
     for index, chunk in enumerate(chunks):
         try:
-            display_text = chunk["text"].rstrip().rstrip(".")
+            display_text = chunk["text"].strip()
             display_start = chunk["start"]
             display_end = chunk["end"]
-
-            # 현재 청크가 "겁니다" 같은 앞 문장의 끝부분에서 시작하면 이전
-            # 청크의 고유한 자막 두 줄을 앞에 덧붙여 시작 문맥도 보존한다.
-            if index > 0:
-                preceding_blocks = [
-                    block
-                    for block in chunks[index - 1].get("blocks", [])
-                    if block.get("end", 0) <= chunk["start"]
-                ][-2:]
-                if preceding_blocks:
-                    display_text = " ".join(
-                        [*(block["text"] for block in preceding_blocks), display_text]
-                    ).strip()
-                    display_start = preceding_blocks[0]["start"]
-
-            # 임베딩은 현재 청크만 사용하되 화면에는 다음 자막 두 줄을 더 보여
-            # 문장 중간에서 결과 미리보기가 끊기는 현상을 줄인다. 다음 청크의
-            # 첫 block은 overlap으로 현재 청크와 같을 수 있어 종료 시각 이후의
-            # block만 고른다.
-            if index + 1 < len(chunks):
-                following_blocks = [
-                    block
-                    for block in chunks[index + 1].get("blocks", [])
-                    if block.get("start", 0) >= chunk["end"]
-                ][:2]
-                if following_blocks:
-                    display_text = " ".join(
-                        [display_text, *(block["text"] for block in following_blocks)]
-                    ).strip()
-                    display_end = following_blocks[-1]["end"]
             if display_text and display_text[-1] not in ".!?。！？":
                 display_text += "."
 
