@@ -67,9 +67,15 @@ Create a `.env` file in the root directory:
 ```env
 CHROMA_PERSIST_DIRECTORY=data/chroma
 CHROMA_COLLECTION=youtube-semantic-search
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=충분히-긴-관리자-비밀번호
 # Optional: use a signed-in browser if YouTube returns HTTP 429
 YTDLP_COOKIES_FROM_BROWSER=edge
 ```
+
+`ADMIN_USERNAME`과 `ADMIN_PASSWORD`를 설정해야 웹 화면에서 ADMIN으로 로그인해
+영상을 추가하거나 삭제할 수 있습니다. 비밀번호가 포함된 `.env` 파일은 Git에
+커밋하지 마세요.
 
 ## 💻 Usage (CLI)
 
