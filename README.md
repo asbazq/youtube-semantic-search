@@ -8,15 +8,15 @@
 
 ## 🚀 Features
 
-- ✅ Fetch YouTube captions using yt-dlp
-- ✅ Preprocess captions into timestamped semantic chunks
-- ✅ Generate Korean/multilingual embeddings using paraphrase-multilingual-mpnet-base-v2
-- ✅ Store and query vectors in ChromaDB
-- ✅ Command-Line Interface to:
-  - Process and embed new videos
-  - Search video transcripts semantically
-  - List uploaded videos
-- ✅ Gradio UI for web-based exploration (optional)
+- ✅ yt-dlp를 사용해 유튜브 자막 가져오기
+- ✅ 캡션을 타임스탬프가 포함된 의미 단위로 전처리합니다
+- ✅ paraphrase-multilingual-mpnet-base-v2를 사용해 한국어 및 다국어 임베딩을 생성합니다
+- ✅ ChromaDB에 벡터를 저장하고 조회하기
+- ✅ 명령어 인터페이스:
+  - 새 동영상 처리 및 임베드하기
+  - 비디오 대본을 의미적으로 검색하기
+  - 업로드된 동영상 목록
+- ✅ 웹 기반 탐색을 위한 Gradio UI (선택 사항)
 
 ---
 
@@ -67,7 +67,7 @@ Create a `.env` file in the root directory:
 ```env
 CHROMA_PERSIST_DIRECTORY=data/chroma
 CHROMA_COLLECTION=youtube-semantic-search
-ADMIN_USERNAME=admin
+ADMIN_USERNAME=user_name
 ADMIN_PASSWORD=충분히-긴-관리자-비밀번호
 # Optional: use a signed-in browser if YouTube returns HTTP 429
 YTDLP_COOKIES_FROM_BROWSER=edge
