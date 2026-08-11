@@ -1,6 +1,8 @@
-# 🎥 YouTube Semantic Search Engine
+# 🦏 Rhino Strength YouTube Search
 
-An intelligent, Python-based search engine that lets you semantically search through YouTube video transcripts. Built using yt-dlp, SentenceTransformers, ChromaDB, and Gradio.
+라이노스트렝스 YouTube 영상의 자막에서 운동 동작과 코칭 내용을 자연어로
+찾아주는 검색 서비스입니다. yt-dlp, SentenceTransformers, ChromaDB, Vue를
+사용합니다.
 
 ---
 
@@ -83,12 +85,23 @@ Options:
 - `5`: View uploaded videos
 - `6`: Exit
 
-## 🌐 Web UI (Gradio - Optional)
+## 🌐 Vue Web UI
 
-Coming soon in `app.py`:
-- Drag-and-drop YouTube processing
-- Query with real-time results
-- Stylish Gradio interface
+백엔드와 프론트엔드를 각각 실행합니다.
+
+```bash
+# terminal 1
+uvicorn api:app --reload
+
+# terminal 2
+cd frontend
+npm install
+npm run dev
+```
+
+브라우저에서 `http://localhost:5173`을 열면 전체/영상별 의미 검색, 타임스탬프
+이동, 새 영상 등록 기능을 사용할 수 있습니다. 임베딩 모델은 첫 API 요청 때 한 번
+로드되므로 최초 요청에는 시간이 조금 걸릴 수 있습니다.
 
 ## 📚 Example Output
 
