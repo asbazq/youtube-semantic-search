@@ -109,6 +109,31 @@ npm run dev
 이동, 새 영상 등록 기능을 사용할 수 있습니다. 임베딩 모델은 첫 API 요청 때 한 번
 로드되므로 최초 요청에는 시간이 조금 걸릴 수 있습니다.
 
+## 🐳 Docker Compose
+
+루트의 `.env`에 최소한 관리자 비밀번호를 설정합니다.
+
+```env
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=충분히-긴-관리자-비밀번호
+CHROMA_COLLECTION=youtube-semantic-search
+```
+
+이미지를 빌드하고 서비스를 실행합니다.
+
+```bash
+docker compose up -d --build
+docker compose logs -f
+```
+
+브라우저에서 `http://localhost:18765`을 엽니다. 포트를 바꾸려면 `.env`에
+`APP_PORT=원하는포트`를 추가합니다. 생성한 자막, 임베딩, ChromaDB 데이터는
+호스트의 `data/`에 유지되며 모델 캐시는 Docker 볼륨에 저장됩니다.
+
+```bash
+docker compose down
+```
+
 ## 📚 Example Output
 
 ```

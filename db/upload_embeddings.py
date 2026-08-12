@@ -11,6 +11,7 @@ from typing import Dict, List
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from db.chroma_setup import get_chroma_collection
+from utils.logging_config import configure_error_file_logging
 
 EMBEDDINGS_DIR = Path("data/embeddings")
 BATCH_SIZE = 100
@@ -19,6 +20,7 @@ VIDEO_TITLE_OVERRIDES = {
 }
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+configure_error_file_logging()
 logger = logging.getLogger(__name__)
 
 

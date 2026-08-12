@@ -1,0 +1,39 @@
+services:
+  backend:
+    build:
+      context: .
+      target: backend
+    restart: unless-stopped
+    environment:
+      CHROMA_PERSIST_DIRECTORY: /app/data/chroma
+      CHROMA_COLLECTION: ${CHROMA_COLLECTION:-youtube-semantic-search}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD를 .env 파일에 설정하세요}
+      YTDLP_COOKIES_FROM_BROWSER: ${YTDLP_COOKIES_FROM_BROWSER:-}
+      HF_HOME: /root/.cache/huggingface
+      ERROR_LOG_FILE: /app/data/logs/error.log
+    volumes:
+      - ./data:/app/data
+      - huggingface-cache:/root/.cache/huggingface
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  frontend:
+    build:
+      context: .
+      target: frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-18765}:80"
+
+volumes:
+  huggingface-cache:

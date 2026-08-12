@@ -9,6 +9,7 @@ import logging
 import argparse
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
+from utils.logging_config import configure_error_file_logging
 
 # --- Configuration ---
 CHUNKS_DIR = Path("data/chunks")
@@ -18,6 +19,7 @@ MODEL_NAME = "paraphrase-multilingual-mpnet-base-v2"
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+configure_error_file_logging()
 logger = logging.getLogger(__name__)
 
 # --- Ensure output directory exists ---

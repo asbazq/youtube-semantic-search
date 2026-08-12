@@ -97,12 +97,18 @@ async function deleteVideo(video) {
 }
 
 async function pollImport(jobId) {
+  // 이전 예약이 남아 있으면 취소하여 같은 작업을 중복 조회하지 않게 한다.
   clearTimeout(progressTimer)
   try {
+    // 백엔드 메모리에 저장된 processed, total, progress,
+    // remaining_seconds 등의 최신 작업 상태를 가져온다.
     importProgress.value = await api(`/api/import-jobs/${jobId}`)
     if (['queued', 'reading', 'processing'].includes(importProgress.value.status)) {
+      // 아직 작업 중이면 2초 뒤 다시 조회한다. setInterval 대신 setTimeout을
+      // 사용하므로 이전 HTTP 요청이 끝나기 전에 다음 요청이 겹치지 않는다.
       progressTimer = setTimeout(() => pollImport(jobId), 2000)
     } else {
+      // complete, partial, failed 상태라면 조회를 멈추고 영상 목록을 갱신한다.
       await loadVideos()
     }
   } catch (exception) {
@@ -194,7 +200,11 @@ async function addVideo() {
 }
 
 function formatRemaining(value) {
+  // 작업 초반처럼 백엔드가 예상 시간을 아직 계산하지 못한 경우의 표시다.
   if (value == null) return '계산 중…'
+
+  // 백엔드는 남은 시간을 초 단위로 보내므로 화면 표시용 분/초로 나눈다.
+  // 예: 125초 -> minutes=2, seconds=5 -> "약 2분 5초"
   const minutes = Math.floor(value / 60)
   const seconds = Math.max(0, Math.round(value % 60))
   return minutes ? `약 ${minutes}분 ${seconds}초` : `약 ${seconds}초`

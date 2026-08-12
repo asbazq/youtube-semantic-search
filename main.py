@@ -5,6 +5,7 @@ YouTube 자막 다운로드 -> 자막 전처리 -> 임베딩 생성 -> ChromaDB 
 """
 
 import json
+import logging
 import os
 import re
 import sys
@@ -13,6 +14,10 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import parse_qs, urlparse
 from search.semantic_search import YouTubeSemanticSearch, format_time
+from utils.logging_config import configure_error_file_logging
+
+configure_error_file_logging()
+logger = logging.getLogger(__name__)
 
 
 def normalize_video_id(value: str) -> str:
@@ -58,6 +63,7 @@ def run_script(command: list):
         return True
     except subprocess.CalledProcessError as e:
         print(f"❌ {command} failed with exit code {e.returncode}")
+        logger.error("파이프라인 명령 실패: command=%r exit_code=%s", command, e.returncode)
         return False
 
 def find_processed_file(video_id: str, video_title: str) -> Optional[str]:
@@ -116,6 +122,7 @@ def full_pipeline(video_id: str, video_title: str) -> bool:
     processed_file = find_processed_file(video_id, video_title)
     if not processed_file:
         print(f"❌ Could not find processed embedding file for video {video_id}")
+        logger.error("임베딩 결과 파일 없음: video_id=%s title=%r", video_id, video_title)
         print("🔍 Available files in data/embeddings/:")
         embeddings_dir = Path("data/embeddings")
         if embeddings_dir.exists():

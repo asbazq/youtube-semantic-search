@@ -15,6 +15,7 @@ from sentence_transformers import SentenceTransformer
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from db.chroma_setup import get_chroma_collection
+from utils.logging_config import configure_error_file_logging
 
 # 자막 벡터를 만들 때 사용한 모델과 반드시 같아야 한다.
 MODEL_NAME = "paraphrase-multilingual-mpnet-base-v2"
@@ -41,6 +42,7 @@ def decompose_hangul(value: str) -> tuple[int, ...]:
     return tuple(decomposed)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+configure_error_file_logging()
 logger = logging.getLogger(__name__)
 
 

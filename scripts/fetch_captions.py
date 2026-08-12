@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from utils.utils import save_json, parse_vtt_file, ensure_dir_exists
+from utils.logging_config import configure_error_file_logging
 
 # 이 프로젝트는 한국어 자막만 사용한다. 영어 자막으로 대체하지 않는다.
 load_dotenv()
@@ -30,6 +31,7 @@ YTDLP_COOKIES_FROM_BROWSER = os.getenv("YTDLP_COOKIES_FROM_BROWSER")
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+configure_error_file_logging()
 logger = logging.getLogger(__name__)
 
 

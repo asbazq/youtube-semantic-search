@@ -6,8 +6,10 @@ from pathlib import Path
 
 import chromadb
 from dotenv import load_dotenv
+from utils.logging_config import configure_error_file_logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+configure_error_file_logging()
 logger = logging.getLogger(__name__)
 
 # .env 파일의 값을 os.environ에 불러온다. 값이 없으면 두 번째 인자를 기본값으로 쓴다.
