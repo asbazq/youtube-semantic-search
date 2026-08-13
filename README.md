@@ -1,7 +1,7 @@
 # 🦏 Rhino Strength YouTube Search
 
 라이노스트렝스 YouTube 영상의 자막에서 운동 동작과 코칭 내용을 자연어로
-찾아주는 검색 서비스입니다. yt-dlp, SentenceTransformers, ChromaDB, Vue를
+찾아주는 검색 서비스입니다. yt-dlp, PyTorch, Hugging Face Transformers, ChromaDB, Vue를
 사용합니다.
 
 ---
@@ -91,6 +91,14 @@ Options:
 - `5`: View uploaded videos
 - `6`: Exit
 
+이전 `sentence-transformers` 구현에서 만든 데이터가 이미 있다면 새 정규화
+방식으로 전체 벡터를 다시 만들고 ChromaDB에 업로드합니다.
+
+```bash
+python scripts/embed_chunks.py --overwrite
+python db/upload_embeddings.py --all
+```
+
 ## 🌐 Vue Web UI
 
 백엔드와 프론트엔드를 각각 실행합니다.
@@ -149,7 +157,7 @@ docker compose down
 
 - Python 3.10+
 - `yt-dlp`
-- `sentence-transformers`
+- `torch`, `transformers`
 - `chromadb`
 - `Gradio` (for web UI)
 - `dotenv`, `json`, `subprocess`, `os`, `pathlib`

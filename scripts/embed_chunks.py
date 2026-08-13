@@ -1,6 +1,6 @@
 """자막 청크의 문장을 의미를 표현하는 숫자 벡터로 변환한다.
 
-컴퓨터는 문장을 직접 비교하기 어려우므로 SentenceTransformer 모델로 각 문장을
+컴퓨터는 문장을 직접 비교하기 어려우므로 Transformer 모델로 각 문장을
 여러 실수의 리스트(embedding)로 바꾼다.
 """
 
@@ -8,14 +8,13 @@ import json
 import logging
 import argparse
 from pathlib import Path
-from sentence_transformers import SentenceTransformer
 from utils.logging_config import configure_error_file_logging
+from utils.embedding import MODEL_NAME, TextEmbedder
 
 # --- Configuration ---
 CHUNKS_DIR = Path("data/chunks")
 EMBEDDINGS_DIR = Path("data/embeddings")
 # 한국어를 포함한 여러 언어의 문장을 의미에 따라 비교할 수 있는 모델이다.
-MODEL_NAME = "paraphrase-multilingual-mpnet-base-v2"
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
@@ -28,7 +27,7 @@ EMBEDDINGS_DIR.mkdir(parents=True, exist_ok=True)
 # 모델 로드는 비용이 크므로 파일 시작 시 한 번만 수행하고 모든 파일에서 재사용한다.
 logger.info(f"📦 Loading embedding model: {MODEL_NAME}")
 try:
-    model = SentenceTransformer(MODEL_NAME)
+    embedder = TextEmbedder(MODEL_NAME)
     logger.info("✅ Model loaded successfully")
 except Exception as e:
     logger.error(f"❌ Failed to load model {MODEL_NAME}: {e}")
@@ -76,11 +75,11 @@ def embed_chunks_file(input_file: Path, output_file: Path):
         # encode는 문장 목록을 2차원 숫자 배열로 바꾼다.
         # 입력 shape는 문장 N개의 리스트, 출력 shape는 (N, 벡터 차원)이다.
         # 같은 위치가 서로 대응한다: texts[0]의 결과는 embeddings[0]이다.
-        embeddings = model.encode(texts, show_progress_bar=True, convert_to_numpy=True)
+        embeddings = embedder.encode(texts)
 
         for i, idx in enumerate(valid_indices):
-            # NumPy 배열은 JSON 저장이 안 되므로 일반 Python list로 변환한다.
-            chunks[idx]["embedding"] = embeddings[i].tolist()
+            # 공통 임베더가 반환한 Python list는 그대로 JSON에 저장할 수 있다.
+            chunks[idx]["embedding"] = embeddings[i]
 
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(chunks, f, indent=2, ensure_ascii=False)
@@ -127,7 +126,7 @@ def main(overwrite=False):
 # --- CLI entry ---
 if __name__ == "__main__":
     # --overwrite를 주면 기존 결과의 수정 시간과 관계없이 다시 만든다.
-    parser = argparse.ArgumentParser(description="Embed caption chunks using SentenceTransformer (SBERT)")
+    parser = argparse.ArgumentParser(description="Embed caption chunks using PyTorch and Transformers")
     parser.add_argument("--overwrite", action="store_true", help="Force overwrite existing embedding files")
     args = parser.parse_args()
 

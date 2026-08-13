@@ -10,15 +10,13 @@ from datetime import timedelta
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional
 
-from sentence_transformers import SentenceTransformer
-
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from db.chroma_setup import get_chroma_collection
+from utils.embedding import MODEL_NAME, TextEmbedder
 from utils.logging_config import configure_error_file_logging
 
 # 자막 벡터를 만들 때 사용한 모델과 반드시 같아야 한다.
-MODEL_NAME = "paraphrase-multilingual-mpnet-base-v2"
 MIN_SCORE = 0.45
 RELATIVE_SCORE_DROP = 0.12
 FUZZY_TOKEN_SCORE = 0.75
@@ -57,14 +55,14 @@ def format_time(seconds: int) -> str:
 class YouTubeSemanticSearch:
     """임베딩 모델과 ChromaDB 컬렉션을 묶어 검색 기능을 제공하는 클래스.
 
-    클래스는 데이터(self.model, self.collection)와 관련 함수(method)를 하나의
+    클래스는 데이터(self.embedder, self.collection)와 관련 함수(method)를 하나의
     객체에 묶는 문법이다. ``self``는 현재 만들어진 객체 자신을 뜻한다.
     """
 
     def __init__(self):
         """``YouTubeSemanticSearch()`` 객체 생성 직후 자동 실행되는 초기화 함수."""
         logger.info("Loading embedding model: %s", MODEL_NAME)
-        self.model = SentenceTransformer(MODEL_NAME)
+        self.embedder = TextEmbedder(MODEL_NAME)
         self.collection = get_chroma_collection()
 
     def embed_query(self, query: str) -> Optional[List[float]]:
@@ -78,7 +76,7 @@ class YouTubeSemanticSearch:
             logger.warning("Empty query provided")
             return None
         try:
-            return self.model.encode([query.strip()], convert_to_numpy=True)[0].tolist()
+            return self.embedder.encode([query.strip()])[0]
         except Exception as error:
             logger.error("Embedding error for query '%s': %s", query, error)
             return None

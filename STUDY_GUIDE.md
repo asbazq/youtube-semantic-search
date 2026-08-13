@@ -375,7 +375,7 @@ result.stderr
 중단점 위치:
 
 ```python
-embeddings = model.encode(...)
+embeddings = embedder.encode(texts)
 ```
 
 실행 전에 확인합니다.
@@ -390,8 +390,8 @@ texts[0]
 
 ```python
 type(embeddings)
-embeddings.shape
-embeddings[0].shape
+len(embeddings)
+len(embeddings[0])
 embeddings[0][:5]
 ```
 
