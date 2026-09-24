@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
 const query = ref('')
 const selectedVideo = ref('')
@@ -23,6 +23,14 @@ const showManage = ref(false)
 const loginUsername = ref('')
 const loginPassword = ref('')
 const authToken = ref(localStorage.getItem('admin_token') || '')
+// 챗봇 화면 상태는 기존 검색 결과와 분리한다. chatMessages는 화면 표시용이며
+// 서버의 SessionMemory에는 session_id별 최근 질문·답변이 따로 저장된다.
+const chatQuestion = ref('')
+const chatMessages = ref([])
+const chatLoading = ref(false)
+const chatError = ref('')
+// 새로고침하면 새 대화가 시작된다. 같은 화면에서 이어 묻는 동안만 ID를 유지한다.
+const chatSessionId = ref(crypto.randomUUID())
 let progressTimer = null
 
 const selectedTitle = computed(() =>
@@ -154,6 +162,52 @@ async function search() {
   }
 }
 
+function resetChat() {
+  const previousSession = chatSessionId.value
+  const hadMessages = chatMessages.value.length > 0
+  chatSessionId.value = crypto.randomUUID()
+  chatMessages.value = []
+  chatError.value = ''
+  // 이미 대화했다면 서버 메모리도 정리한다. 삭제 실패가 새 대화를 막지는 않는다.
+  if (hadMessages) api(`/api/chat/sessions/${encodeURIComponent(previousSession)}`, { method: 'DELETE' }).catch(() => {})
+}
+
+// 검색 범위를 바꾸면 이전 영상에 관한 후속 질문이 새 영상에 섞이지 않도록 한다.
+watch(selectedVideo, resetChat)
+
+async function askChat() {
+  const question = chatQuestion.value.trim()
+  if (!question || chatLoading.value) return
+  const sessionId = chatSessionId.value
+  chatLoading.value = true
+  chatError.value = ''
+  chatMessages.value.push({ role: 'user', content: question })
+  chatQuestion.value = ''
+  try {
+    const data = await api('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question,
+        session_id: sessionId,
+        // 빈 값이면 전체 영상, 값이 있으면 선택한 영상의 자막만 검색한다.
+        video_id: selectedVideo.value || null,
+      }),
+    })
+    // 답변을 기다리는 동안 '새 대화'를 누른 경우 옛 답변을 새 화면에 붙이지 않는다.
+    if (sessionId !== chatSessionId.value) return
+    chatMessages.value.push({ role: 'assistant', content: data.answer,
+      sources: data.sources || [], citations: data.citations || [] })
+  } catch (exception) {
+    if (sessionId !== chatSessionId.value) return
+    chatError.value = exception.message
+    chatQuestion.value = question
+    chatMessages.value.pop()
+  } finally {
+    chatLoading.value = false
+  }
+}
+
 async function addVideo() {
   if (adding.value) return
   adding.value = true
@@ -236,6 +290,7 @@ onUnmounted(() => clearTimeout(progressTimer))
       </a>
       <nav>
         <a href="#search">검색</a>
+        <a href="#chat">AI 챗봇</a>
         <button v-if="admin" class="add-button" @click="showAdd = true"><span>＋</span> 영상 추가</button>
         <button v-if="admin" class="manage-button" @click="showManage = true">영상 관리</button>
         <button v-if="admin" class="auth-button" @click="logoutAdmin">{{ admin.username }} · 로그아웃</button>
@@ -273,6 +328,35 @@ onUnmounted(() => clearTimeout(progressTimer))
       </section>
 
       <section v-if="error || notice" class="message" :class="{ error }">{{ error || notice }}</section>
+
+      <section id="chat" class="chat-section" aria-label="영상 자막 AI 챗봇">
+        <div class="chat-heading">
+          <div><span class="section-label">LOCAL AI CHAT</span><h2>영상에게 물어보세요</h2></div>
+          <button type="button" class="chat-reset" @click="resetChat">새 대화</button>
+        </div>
+        <p class="chat-intro">{{ selectedTitle }}의 자막을 찾아 답합니다. 답변 아래 영상 시점으로 이동할 수 있어요.</p>
+        <div class="chat-log" aria-live="polite">
+          <p v-if="!chatMessages.length" class="chat-empty">예: “데드리프트에서 허리를 어떻게 유지하라고 설명했어?”</p>
+          <div v-for="(message, messageIndex) in chatMessages" :key="messageIndex" class="chat-bubble" :class="message.role">
+            <strong>{{ message.role === 'user' ? '나' : 'RHINO AI' }}</strong>
+            <p>{{ message.content }}</p>
+            <div v-if="message.role === 'assistant' && message.sources?.length" class="chat-sources">
+              <span>검색된 영상 구간</span>
+              <a v-for="(source, sourceIndex) in message.sources" :key="`${source.video_id}-${source.start_time}`"
+                :href="source.youtube_url" target="_blank" rel="noopener noreferrer">
+                [{{ sourceIndex + 1 }}] {{ source.video_title }} · {{ formatTime(source.start_time) }} ↗
+              </a>
+            </div>
+          </div>
+          <p v-if="chatLoading" class="chat-waiting">자막을 찾고 로컬 모델이 답변하는 중…</p>
+        </div>
+        <p v-if="chatError" class="chat-error" role="alert">{{ chatError }}</p>
+        <form class="chat-form" @submit.prevent="askChat">
+          <input v-model="chatQuestion" maxlength="300" :disabled="chatLoading" aria-label="영상에 질문하기"
+            placeholder="영상 내용에 대해 질문해 보세요" />
+          <button type="submit" :disabled="chatLoading || !chatQuestion.trim()">{{ chatLoading ? '답변 중…' : '질문하기' }}</button>
+        </form>
+      </section>
 
       <section v-if="importProgress" class="import-progress" :class="importProgress.status">
         <div class="progress-heading">

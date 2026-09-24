@@ -40,6 +40,8 @@ from dotenv import load_dotenv
 from main import full_pipeline, get_playlist_videos, normalize_video_id
 # 검색 모델 로딩과 ChromaDB 조회를 담당하는 클래스다.
 from search.semantic_search import YouTubeSemanticSearch
+from chatbot.ollama_client import ModelUnavailable, OllamaClient
+from chatbot.service import ChatService, InvalidModelOutput, SearchFailure
 from utils.logging_config import configure_error_file_logging
 
 # 프로젝트 루트의 .env 값을 os.environ에 넣는다. 이미 설정된 환경변수는 기본적으로
@@ -77,6 +79,18 @@ class SearchRequest(BaseModel):
     video_id: str | None = None
     # 반환할 최대 검색 결과 수이며 기본 10개, 허용 범위는 1~30개다.
     top_k: int = Field(default=10, ge=1, le=30)
+
+
+class ChatRequest(BaseModel):
+    """패턴 ②: 브라우저 입력을 검증하는 요청 스키마.
+
+    session_id는 대화 기록의 키이고 video_id는 검색 범위다. 모델이 반환하는
+    citations JSON 스키마는 chatbot/service.py의 ANSWER_SCHEMA에 따로 있다.
+    """
+
+    question: str = Field(min_length=1, max_length=300)
+    session_id: str = Field(min_length=8, max_length=80)
+    video_id: str | None = Field(default=None, max_length=80)
 
 
 class VideoRequest(BaseModel):
@@ -154,6 +168,15 @@ def get_engine() -> YouTubeSemanticSearch:
     느릴 수 있다. 이후에는 ``lru_cache(maxsize=1)``가 같은 객체를 반환한다.
     """
     return YouTubeSemanticSearch()
+
+
+@lru_cache(maxsize=1)
+def get_chat_service() -> ChatService:
+    """검색 엔진·대화 메모리를 요청마다 새로 만들지 않고 재사용한다.
+
+    프로세스가 재시작되면 SessionMemory의 대화는 사라진다.
+    """
+    return ChatService(get_engine(), OllamaClient())
 
 
 @app.get("/api/health")
@@ -237,6 +260,32 @@ def search(payload: SearchRequest):
     if "error" in result:
         raise HTTPException(status_code=500, detail=result["error"])
     return result
+
+
+@app.post("/api/chat")
+def chat(payload: ChatRequest):
+    """자막을 근거로 로컬 Ollama 모델이 답변한다.
+
+    422=입력 문제, 503=로컬 모델 연결/설치 문제, 502=모델 출력 형식 문제,
+    500=검색 문제로 구분해 화면에서 원인을 알 수 있게 한다.
+    """
+    question = payload.question.strip()
+    if not question:
+        raise HTTPException(status_code=422, detail="질문을 입력해 주세요.")
+    try:
+        return get_chat_service().ask(question, payload.session_id, payload.video_id)
+    except ModelUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except InvalidModelOutput as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    except SearchFailure as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
+
+
+@app.delete("/api/chat/sessions/{session_id}", status_code=204)
+def clear_chat_session(session_id: str):
+    """Let the browser discard an in-memory conversation."""
+    get_chat_service().memory.clear(session_id)
 
 
 def process_video(video_id: str, title: str):
