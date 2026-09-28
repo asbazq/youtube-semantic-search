@@ -30,7 +30,8 @@ class OllamaClient:
         구조화 출력에 대응한다. stream=False여야 단일 JSON 응답을 읽을 수 있다.
         """
         payload = {"model": self.model, "messages": messages, "stream": False,
-                   "options": {"temperature": 0}}
+                   "options": {"temperature": 0,
+                               "num_predict": 128 if tools is not None else 512}}
         if tools is not None:
             payload["tools"] = tools
         if response_format is not None:
@@ -45,7 +46,7 @@ class OllamaClient:
             try:
                 with urlopen(request, timeout=self.timeout) as response:
                     body = json.load(response)
-                message = body.get("message")
+                message = body.get("message") if isinstance(body, dict) else None
                 if not isinstance(message, dict):
                     raise ModelUnavailable("로컬 모델이 올바른 응답을 반환하지 않았습니다.")
                 return message
@@ -58,7 +59,14 @@ class OllamaClient:
                     ) from error
                 if error.code not in (429, 500, 502, 503, 504) or attempt:
                     raise ModelUnavailable("로컬 모델 요청에 실패했습니다.") from error
-            except (URLError, socket.timeout, TimeoutError, OSError) as error:
+            except (socket.timeout, TimeoutError) as error:
+                # 느린 생성을 다시 시작하면 같은 요청이 몇 분씩 반복될 수 있다.
+                raise ModelUnavailable("모델 응답 시간이 초과되었습니다. 질문을 짧게 바꿔 다시 시도해 주세요.") from error
+            except (ValueError, UnicodeError) as error:
+                raise ModelUnavailable("로컬 모델이 올바른 JSON 응답을 반환하지 않았습니다.") from error
+            except (URLError, OSError) as error:
+                if isinstance(getattr(error, "reason", None), TimeoutError):
+                    raise ModelUnavailable("모델 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.") from error
                 if attempt:
                     raise ModelUnavailable(
                         "Ollama에 연결할 수 없습니다. Ollama 서버 실행 상태를 확인해 주세요."

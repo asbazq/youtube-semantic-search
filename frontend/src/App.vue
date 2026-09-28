@@ -33,6 +33,7 @@ const chatError = ref('')
 // 새로고침하면 새 대화가 시작된다. 같은 화면에서 이어 묻는 동안만 ID를 유지한다.
 const chatSessionId = ref(createChatSessionId())
 let progressTimer = null
+let chatController = null
 
 const selectedTitle = computed(() =>
   videos.value.find((video) => video.video_id === selectedVideo.value)?.title || '모든 영상'
@@ -164,6 +165,9 @@ async function search() {
 }
 
 function resetChat() {
+  chatController?.abort()
+  chatController = null
+  chatLoading.value = false
   const previousSession = chatSessionId.value
   const hadMessages = chatMessages.value.length > 0
   chatSessionId.value = createChatSessionId()
@@ -180,6 +184,9 @@ async function askChat() {
   const question = chatQuestion.value.trim()
   if (!question || chatLoading.value) return
   const sessionId = chatSessionId.value
+  const controller = new AbortController()
+  chatController = controller
+  const timeout = setTimeout(() => controller.abort(), 180000)
   chatLoading.value = true
   chatError.value = ''
   chatMessages.value.push({ role: 'user', content: question })
@@ -187,6 +194,7 @@ async function askChat() {
   try {
     const data = await api('/api/chat', {
       method: 'POST',
+      signal: controller.signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         question,
@@ -201,11 +209,17 @@ async function askChat() {
       sources: data.sources || [], citations: data.citations || [] })
   } catch (exception) {
     if (sessionId !== chatSessionId.value) return
-    chatError.value = exception.message
+    chatError.value = controller.signal.aborted
+      ? '응답 대기 시간이 초과되었습니다. 질문을 짧게 바꿔 다시 시도해 주세요.'
+      : exception.message
     chatQuestion.value = question
     chatMessages.value.pop()
   } finally {
-    chatLoading.value = false
+    clearTimeout(timeout)
+    if (chatController === controller) {
+      chatController = null
+      chatLoading.value = false
+    }
   }
 }
 
@@ -279,7 +293,7 @@ function parseBatchInput(value) {
 }
 
 onMounted(() => { loadVideos(); restoreAdmin() })
-onUnmounted(() => clearTimeout(progressTimer))
+onUnmounted(() => { clearTimeout(progressTimer); chatController?.abort() })
 </script>
 
 <template>
