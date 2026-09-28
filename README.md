@@ -157,6 +157,88 @@ docker compose logs -f
 docker compose down
 ```
 
+## 🧰 트러블슈팅
+
+### 검색 결과가 없거나 관련 없는 영상 구간이 나올 때
+
+자막은 `scripts/preprocess_captions.py`에서 다음 기준으로 청크로 묶습니다.
+
+| 단계 | 현재 기준 | 검색에 미치는 영향 |
+| --- | --- | --- |
+| 인접 자막 결합 | 간격 0.5초 이하 | 짧게 끊긴 자동 자막을 한 발화로 합침 |
+| 긴 발화 분할 | 30초 초과 또는 80단어 초과 시 분할; 문장 경계를 우선 사용 | 문장 경계를 못 찾으면 40단어씩 나누고 시점은 길이에 비례해 추정 |
+| 검색 청크 구성 | 약 25단어 목표, 다음 문장을 더하면 50단어를 넘을 때 문장 경계에서 분리 | 문장 블록을 중간에서 자르거나 앞 청크와 겹치지 않음 |
+| 짧은 청크 병합 | 10단어 미만 또는 3초 미만이며 이웃 청크와 간격이 3초 이하 | 지나치게 짧은 구간을 합침 |
+
+25·50단어는 글자 수나 모델 토큰 수가 아닌 **공백으로 나눈 단어 수**입니다.
+긴 문장 블록을 보존하거나 짧은 청크를 나중에 합치면 최종 청크가 50단어를
+넘을 수 있습니다. 청크가 너무 짧으면 질문의 맥락이 빠지고, 너무 길면 다른
+내용이 섞여 검색 정확도와 영상 시점 링크가 흐려질 수 있습니다.
+
+청킹 기준을 코드에서 변경했다면 **기존 데이터에는 자동 반영되지 않습니다.**
+저장된 자막을 다시 처리하고 임베딩과 ChromaDB 인덱스를 갱신하세요.
+Docker Compose 환경에서는 다음 순서로 실행합니다. `--overwrite`는 모든
+등록 자막을 다시 계산하므로 데이터가 많으면 시간이 걸립니다.
+
+```bash
+docker compose exec backend python scripts/preprocess_captions.py --overwrite
+docker compose exec backend python scripts/embed_chunks.py --overwrite
+docker compose exec backend python db/upload_embeddings.py --all
+```
+
+검색 화면은 점수가 낮아도 후보를 일부 보여 줄 수 있습니다. 챗봇은 검색된
+후보 중 유사도 `CHAT_MIN_SCORE`(기본 `0.45`) 이상인 자막만 근거로 씁니다.
+따라서 검색 결과가 보이는데 챗봇이 “관련 자막에서 답을 확인하지 못했습니다”라고
+답할 수 있습니다. 먼저 영상 선택 범위와 실제 자막 내용을 확인하세요.
+`CHAT_MIN_SCORE`를 낮추면 근거가 늘지만 관련성이 낮은 자막도 포함될 수 있습니다.
+
+### “답변 중…”이 오래 지속될 때
+
+Ollama 호출에는 검색어 생성 **최대 128토큰**, 답변 생성 **최대 512토큰**의
+`num_predict` 제한과 `repeat_penalty=1.1`을 적용합니다. 생성량 제한은
+응답 시간을 줄이고 같은 문장을 반복하다 JSON이 잘리는 현상을 줄이기 위한
+것이며 답변 품질을 보장하는 값은 아닙니다. Ollama HTTP 호출은 회당 120초,
+브라우저 요청은 180초가 지나면 중단됩니다. 모델이 느리거나 다른 요청을
+처리 중이면 기다리는 시간이 길어질 수 있습니다.
+
+```bash
+docker compose ps
+docker compose logs --tail=100 backend ollama
+```
+
+Ollama가 실행 중인지와 모델이 설치됐는지 확인하세요. 모델 이름은
+`.env`의 `OLLAMA_MODEL`(기본 `qwen2.5:1.5b`)과 같아야 합니다.
+
+```bash
+docker compose exec ollama ollama list
+docker compose exec ollama ollama pull qwen2.5:1.5b
+```
+
+### “모델 응답 형식을 확인할 수 없습니다” 또는 자막 원문이 보일 때
+
+작은 모델은 반복 문장을 생성해 JSON을 끝내지 못하거나 존재하지 않는 출처
+번호를 돌려줄 수 있습니다. 서버는 모델 출력을 검증하고 한 번 더 형식 수정을
+요청합니다. 두 번 모두 실패하면 검증되지 않은 문장 대신 **검색된 자막 원문**을
+명시해서 보여 주며, 아래 영상 시점 링크로 원문을 확인할 수 있습니다. 이때
+반환된 내용은 AI가 정리한 답변이 아닙니다. 같은 현상이 반복되면 `backend`와
+`ollama` 로그를 확인하고 질문을 더 구체적으로 바꿔 보세요.
+
+### 설정을 바꿨는데 반영되지 않거나 관리자 로그인이 안 될 때
+
+`.env`의 `ADMIN_USERNAME`·`ADMIN_PASSWORD`는 백엔드 컨테이너에 전달됩니다.
+터미널에서 `echo "$ADMIN_PASSWORD"`가 비어 있어도 `.env` 값이 없는 것은
+아닙니다. 로그인 401은 입력한 계정과 컨테이너 설정이 일치하지 않는다는
+뜻입니다. `.env`에서 관리자 계정, `OLLAMA_MODEL`, `CHAT_MIN_SCORE`,
+`APP_PORT` 등을 수정했다면 컨테이너를 다시 만드세요.
+
+```bash
+docker compose up -d --force-recreate backend frontend
+```
+
+비밀번호를 로그나 이슈에 붙여 넣지 마세요.
+
+---
+
 ## 📚 Example Output
 
 ```
