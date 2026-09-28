@@ -41,7 +41,7 @@ from main import full_pipeline, get_playlist_videos, normalize_video_id
 # 검색 모델 로딩과 ChromaDB 조회를 담당하는 클래스다.
 from search.semantic_search import YouTubeSemanticSearch
 from chatbot.ollama_client import ModelUnavailable, OllamaClient
-from chatbot.service import ChatService, InvalidModelOutput, SearchFailure
+from chatbot.service import ChatService, SearchFailure
 from utils.logging_config import configure_error_file_logging
 
 # 프로젝트 루트의 .env 값을 os.environ에 넣는다. 이미 설정된 환경변수는 기본적으로
@@ -266,8 +266,8 @@ def search(payload: SearchRequest):
 def chat(payload: ChatRequest):
     """자막을 근거로 로컬 Ollama 모델이 답변한다.
 
-    422=입력 문제, 503=로컬 모델 연결/설치 문제, 502=모델 출력 형식 문제,
-    500=검색 문제로 구분해 화면에서 원인을 알 수 있게 한다.
+    422=입력 문제, 503=로컬 모델 연결/설치 문제, 500=검색 문제로 구분한다.
+    생성 답변의 형식 검증에 실패하면 검색된 자막 발췌를 반환한다.
     """
     question = payload.question.strip()
     if not question:
@@ -276,8 +276,6 @@ def chat(payload: ChatRequest):
         return get_chat_service().ask(question, payload.session_id, payload.video_id)
     except ModelUnavailable as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
-    except InvalidModelOutput as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
     except SearchFailure as error:
         raise HTTPException(status_code=500, detail=str(error)) from error
 

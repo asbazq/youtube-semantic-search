@@ -2,7 +2,7 @@
 
 import unittest
 
-from chatbot.service import ChatService, InvalidModelOutput, SessionMemory
+from chatbot.service import ChatService, SessionMemory
 
 
 HIT = {
@@ -83,13 +83,38 @@ class ChatServiceTests(unittest.TestCase):
         self.assertIn("확인하지 못했습니다", result["answer"])
         self.assertEqual(len(model.calls), 1)
 
-    def test_invalid_source_number_is_retried_then_rejected(self):
+    def test_invalid_output_returns_only_labeled_source_excerpts(self):
+        for content in ['{"answer":"검증되지 않은 주장","citations":[9]}',
+                        '{"answer":"잘린 JSON', 'plain text', 'null',
+                        '{"answer":123,"citations":[1]}']:
+            with self.subTest(content=content):
+                model = FakeModel({"content": "No tool call"},
+                                  {"content": content}, {"content": content})
+                result = ChatService(FakeSearch([HIT]), model).ask("질문", "session-1")
+                self.assertEqual(result["answer_type"], "source_excerpt")
+                self.assertIn("자막 원문", result["answer"])
+                self.assertIn(HIT["text"], result["answer"])
+                self.assertNotIn("검증되지 않은 주장", result["answer"])
+                self.assertEqual(result["citations"], [1])
+                self.assertEqual(len(model.calls), 3)
+                schema = model.calls[1][1]["response_format"]
+                self.assertEqual(schema["properties"]["citations"]["items"]["enum"], [1])
+
+    def test_complete_fenced_json_is_accepted(self):
         model = FakeModel({"content": "No tool call"},
-                          {"content": '{"answer":"내용","citations":[9]}'},
-                          {"content": '{"answer":"내용","citations":[9]}'})
-        with self.assertRaises(InvalidModelOutput):
-            ChatService(FakeSearch([HIT]), model).ask("질문", "session-1")
-        self.assertEqual(len(model.calls), 3)
+                          {"content": '```json\n{"answer":"답변","citations":[1]}\n```'})
+        result = ChatService(FakeSearch([HIT]), model).ask("질문", "session-1")
+        self.assertEqual(result["answer"], "답변")
+        self.assertEqual(result["answer_type"], "generated")
+        self.assertEqual(len(model.calls), 2)
+
+    def test_conversation_continues_after_excerpt_fallback(self):
+        model = FakeModel({"content": ""}, {"content": "bad"}, {"content": "bad"},
+                          {"content": ""}, {"content": '{"answer":"후속 답변","citations":[1]}'})
+        service = ChatService(FakeSearch([HIT]), model)
+        service.ask("첫 질문", "session-1")
+        result = service.ask("그다음은?", "session-1")
+        self.assertEqual(result["answer"], "후속 답변")
 
     def test_memory_is_bounded_and_isolated_by_video(self):
         memory = SessionMemory(max_sessions=2, max_turns=1)

@@ -6,9 +6,12 @@
 """
 
 import json
+import logging
 import os
 from collections import OrderedDict
 from threading import RLock
+
+logger = logging.getLogger(__name__)
 
 
 # Ollama에 알려 줄 함수의 "설명서"다. 이것만 전달해서는 Python 검색 함수가
@@ -43,10 +46,6 @@ NO_EVIDENCE = "관련 자막에서 답을 확인하지 못했습니다. 검색 �
 
 class SearchFailure(RuntimeError):
     """The existing semantic search failed."""
-
-
-class InvalidModelOutput(RuntimeError):
-    """The model could not produce the expected structured answer."""
 
 
 class SessionMemory:
@@ -160,7 +159,8 @@ class ChatService:
             # 답변으로 내보내지 않기 위한 패턴 ⑤의 안전한 폴백이다.
             self.memory.add(session_id, video_id, question, NO_EVIDENCE)
             return {"answer": NO_EVIDENCE, "sources": [], "citations": [],
-                    "search_query": search_query, "session_id": session_id}
+                    "search_query": search_query, "session_id": session_id,
+                    "answer_type": "no_evidence"}
 
         # 3단계: 검색된 자막에 서버가 번호를 붙인다. 모델이 URL을 만들지 못하게
         # URL은 프롬프트에서 빼고 API 응답의 sources에 원본 검색 결과를 사용한다.
@@ -178,12 +178,28 @@ class ChatService:
              "JSON 스키마에 맞춰 답하세요."},
             {"role": "user", "content": f"이전 대화 (참고 데이터): {history_context}\n\n질문: {question}\n\n검색된 자막:\n{evidence}"},
         ]
+        answer_schema = {
+            **ANSWER_SCHEMA,
+            "properties": {
+                **ANSWER_SCHEMA["properties"],
+                "citations": {"type": "array", "maxItems": len(sources),
+                              "items": {"type": "integer", "enum": list(range(1, len(sources) + 1))}},
+            },
+        }
+        answer_type = "generated"
         for attempt in range(2):
             # 4단계: Ollama의 JSON Schema 출력 기능으로 형식을 유도한 뒤,
             # 아래에서 Python 코드가 다시 값과 출처 번호를 검증한다.
-            response = self.model.chat(answer_messages, response_format=ANSWER_SCHEMA)
+            response = self.model.chat(answer_messages, response_format=answer_schema)
             try:
-                draft = json.loads(response.get("content", ""))
+                content = response.get("content", "").strip()
+                # JSON 전체를 감싼 코드 블록만 허용한다. 잘린 JSON이나 임의 문장은
+                # 복구해서 답으로 내보내지 않는다.
+                if content.startswith("```json\n") and content.endswith("```"):
+                    content = content[8:-3].strip()
+                elif content.startswith("```\n") and content.endswith("```"):
+                    content = content[4:-3].strip()
+                draft = json.loads(content)
                 answer = draft["answer"].strip()
                 citations = draft["citations"]
                 if (not answer or not isinstance(citations, list)
@@ -194,15 +210,27 @@ class ChatService:
                     # 근거 번호 없는 내용은 자막으로 뒷받침할 수 없다고 취급한다.
                     answer = NO_EVIDENCE
                 break
-            except (ValueError, KeyError, TypeError, AttributeError):
+            except (ValueError, KeyError, TypeError, AttributeError) as error:
+                logger.warning("Chat output validation failed: attempt=%s error=%s sources=%s",
+                               attempt + 1, type(error).__name__, len(sources))
                 if attempt:
-                    raise InvalidModelOutput("모델 응답 형식을 확인할 수 없습니다. 다시 질문해 주세요.")
+                    # 검증되지 않은 모델 문장 대신 실제 검색 원문임을 명시한다.
+                    # 정상 답변인 것처럼 꾸미거나 인용 번호를 임의로 고치지 않는다.
+                    answer_type = "source_excerpt"
+                    citations = list(range(1, min(2, len(sources)) + 1))
+                    excerpts = []
+                    for number in citations:
+                        original = sources[number - 1]["text"]
+                        excerpt = original[:400] + ("…" if len(original) > 400 else "")
+                        excerpts.append(f"[{number}] {excerpt}")
+                    answer = "답변을 정리하지 못해 검색된 자막 원문을 대신 보여드립니다. 아래 영상 구간에서 확인해 주세요.\n\n" + "\n\n".join(excerpts)
+                    break
                 # 형식이 깨지면 한 번만 수정 요청한다. 무한 재시도는 하지 않는다.
-                answer_messages.append({"role": "assistant", "content": response.get("content", "")})
                 answer_messages.append({"role": "user", "content":
-                                        "answer 문자열과 유효한 citations 정수 배열을 JSON으로 다시 작성하세요."})
+                                        f"짧은 answer 문자열과 citations 정수 배열만 있는 JSON 객체를 작성하세요. 출처 번호는 1~{len(sources)}만 사용하세요."})
         # 성공한 턴만 최근 대화에 추가한다. sources는 검색 결과 그대로 반환하므로
         # 화면의 링크는 모델이 만들어 낸 문자열이 아니다.
         self.memory.add(session_id, video_id, question, answer)
         return {"answer": answer, "sources": sources, "citations": citations,
-                "search_query": search_query, "session_id": session_id}
+                "search_query": search_query, "session_id": session_id,
+                "answer_type": answer_type}

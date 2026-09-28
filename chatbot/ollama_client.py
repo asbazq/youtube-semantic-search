@@ -30,7 +30,7 @@ class OllamaClient:
         구조화 출력에 대응한다. stream=False여야 단일 JSON 응답을 읽을 수 있다.
         """
         payload = {"model": self.model, "messages": messages, "stream": False,
-                   "options": {"temperature": 0,
+                   "options": {"temperature": 0, "repeat_penalty": 1.1,
                                "num_predict": 128 if tools is not None else 512}}
         if tools is not None:
             payload["tools"] = tools
