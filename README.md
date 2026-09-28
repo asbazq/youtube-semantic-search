@@ -144,6 +144,133 @@ Ollama에 내려받으세요. Docker 없이 실행한다면 로컬 Ollama 서버
 | ⑦ RAG | 적용 | ChromaDB에서 찾은 자막을 답변 근거로 넣고 실제 영상 시점 링크를 반환 |
 | ⑧ Agent | 검토 후 미적용 | 현재는 자막 검색 도구 한 번이면 충분해 모델에 반복적인 도구 선택 권한을 주지 않음 |
 
+#### 적용된 7가지 패턴의 코드 예시
+
+아래 코드는 실제 구현의 핵심 부분을 발췌한 것입니다. 각 예시는 표시된 함수·
+메서드 안에서 실행되며 `question`, `history`, `sources` 등은 그 함수에서 앞서
+준비한 값입니다. 전체 호출 순서는 [챗봇 학습 가이드](CHATBOT_STUDY.md)를
+참고하세요.
+
+**① 체인 — 단계의 출력을 다음 단계의 입력으로 전달**
+[`chatbot/service.py`](chatbot/service.py)의 `ChatService.ask()`에서 모델이 고른
+검색어를 실제 검색에 사용합니다.
+
+```python
+plan = self.model.chat(planner_messages, tools=[SEARCH_TOOL])
+search_query = self._tool_query(plan, question, history)
+# 선택한 영상이 없을 때
+found = self.search_engine.search(search_query, top_k=6)
+```
+
+**② 구조화 출력 — 답변과 출처 번호 검증**
+같은 파일의 `ANSWER_SCHEMA`와 `ChatService.ask()`입니다. 모델에 JSON 형식을
+요청한 후 서버가 다시 파싱하고 출처 번호를 확인합니다.
+
+```python
+response = self.model.chat(answer_messages, response_format=answer_schema)
+content = response.get("content", "").strip()
+# 코드 블록으로 감싼 JSON이면 실제 구현에서 감싼 부분을 제거
+# ...
+draft = json.loads(content)
+answer = draft["answer"].strip()
+citations = draft["citations"]
+if (not answer or not isinstance(citations, list)
+        or any(type(number) is not int or number < 1 or number > len(sources)
+               for number in citations)):
+    raise ValueError("Invalid answer or citation")
+```
+
+실제 구현은 JSON 코드 블록과 `citations`의 배열 여부도 검사합니다.
+
+**③ 대화 메모리 — 세션과 영상별 최근 대화**
+[`chatbot/service.py`](chatbot/service.py)의 `SessionMemory`가 질문·답변을
+한 턴으로 저장하고 최근 4턴만 남깁니다.
+
+```python
+key = (session_id, video_id or "")
+history = self._sessions.setdefault(key, [])
+history.extend([{"role": "user", "content": question},
+                {"role": "assistant", "content": answer}])
+del history[:-2 * self.max_turns]
+```
+
+**④ 도구 연결 — 모델은 검색어를 제안하고 서버가 검색**
+[`chatbot/service.py`](chatbot/service.py)의 도구 선언과 `ChatService.ask()`의
+실행 단계입니다. 영상 선택 값은 서버가 전달받은 값을 사용합니다.
+
+```python
+SEARCH_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "search_transcripts",
+        "description": "Search indexed YouTube transcript passages for evidence about the user's question.",
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "A standalone Korean search query"}},
+            "required": ["query"],
+        },
+    },
+}
+# ChatService.ask() 안에서
+plan = self.model.chat(planner_messages, tools=[SEARCH_TOOL])
+search_query = self._tool_query(plan, question, history)
+found = self.search_engine.search_by_video(search_query, video_id, top_k=6)
+```
+
+**⑤ 안정성·복구 — 생성량 제한과 근거 부족 처리**
+[`chatbot/ollama_client.py`](chatbot/ollama_client.py)는 모델 호출의 생성량을
+제한합니다. [`chatbot/service.py`](chatbot/service.py)는 근거가 없으면 답변
+생성을 건너뛰고, JSON 검증이 두 번 실패하면 자막 원문을 반환합니다.
+
+```python
+# OllamaClient.chat()
+payload = {"model": self.model, "messages": messages, "stream": False,
+           "options": {"temperature": 0, "repeat_penalty": 1.1,
+                       "num_predict": 128 if tools is not None else 512}}
+
+# ChatService.ask()
+if not sources:
+    self.memory.add(session_id, video_id, question, NO_EVIDENCE)
+    return {"answer": NO_EVIDENCE, "sources": [], "citations": [],
+            "search_query": search_query, "session_id": session_id,
+            "answer_type": "no_evidence"}
+```
+
+**⑥ 복합 체인 — 영상 범위 검색, 근거 선별, 대화 저장**
+[`chatbot/service.py`](chatbot/service.py)의 `ChatService.ask()`는 한 요청에서
+검색 범위를 선택하고 점수를 검사한 뒤, 최종 답변을 메모리에 남깁니다.
+
+```python
+if video_id:
+    found = self.search_engine.search_by_video(search_query, video_id, top_k=6)
+else:
+    found = self.search_engine.search(search_query, top_k=6)
+sources = [item for item in found.get("results", [])
+           if item.get("text") and float(item.get("score", 0)) >= self.min_score][:4]
+# 모델 응답 검증이 끝난 뒤
+self.memory.add(session_id, video_id, question, answer)
+```
+
+**⑦ RAG — 검색된 자막만 답변 근거로 전달**
+[`chatbot/service.py`](chatbot/service.py)는 검색 결과의 자막에 번호를 붙여
+모델에 주고, 응답의 `sources`는 모델이 만든 링크가 아닌 원본 검색 결과를
+사용합니다.
+
+```python
+evidence = "\n\n".join(
+    f"[{index}] 영상: {item['video_title']} | 시점: {item['start_time']}초\n"
+    f"자막: {item['text'][:1300]}"
+    for index, item in enumerate(sources, 1)
+)
+# answer_messages 안의 사용자 메시지에 evidence를 넣음
+# ...
+response = self.model.chat(answer_messages, response_format=answer_schema)
+# 모델 출력 검증 후 검색 결과 원본을 반환
+return {"answer": answer, "sources": sources, "citations": citations,
+        "search_query": search_query, "session_id": session_id,
+        "answer_type": answer_type}
+```
+
 이 이름들은 설계 패턴을 설명합니다. 현재 코드는 일반 Python 함수와 Ollama
 HTTP API로 구성되며 LangChain의 `Runnable`이나 Agent를 사용하지 않습니다.
 모델 설치·실행 방법과 각 패턴의 코드 위치, 향후 LangGraph 확장 기준은
