@@ -58,6 +58,22 @@ class ChatServiceTests(unittest.TestCase):
         self.assertIn("tools", model.calls[0][1])
         self.assertIn("response_format", model.calls[1][1])
 
+    def test_followup_history_is_reference_data_not_output_examples(self):
+        model = FakeModel(
+            {"content": "No tool call"},
+            {"content": '{"answer":"첫 답변","citations":[1]}'},
+            {"content": "No tool call"},
+            {"content": '{"answer":"후속 답변","citations":[1]}'},
+        )
+        service = ChatService(FakeSearch([HIT]), model)
+        service.ask("첫 질문", "session-1")
+        result = service.ask("그다음은?", "session-1")
+        self.assertEqual(result["answer"], "후속 답변")
+        for messages, _ in model.calls[2:]:
+            self.assertEqual([item["role"] for item in messages], ["system", "user"])
+            self.assertIn("첫 질문", messages[-1]["content"])
+            self.assertIn("첫 답변", messages[-1]["content"])
+
     def test_low_score_results_do_not_become_evidence(self):
         model = FakeModel({"content": "No tool call"})
         search = FakeSearch([{**HIT, "score": 0.2}])
