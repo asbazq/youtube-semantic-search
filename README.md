@@ -111,7 +111,7 @@ npm run dev
 
 ### 로컬 모델 챗봇
 
-챗봇은 기존 자막 검색 결과를 근거로 답하고 영상 시점 링크를 보여 줍니다.
+챗봇은 질문과 관련된 자막 구절을 원문 그대로 보여 주고 영상 시점 링크를 제공합니다.
 답변 모델은 로컬 Ollama에서 실행합니다. 임베딩 모델도 기존처럼 로컬에서
 실행되므로 외부 생성 AI API 키는 필요하지 않습니다.
 
@@ -151,11 +151,11 @@ Ollama에 내려받으세요. Docker 없이 실행한다면 로컬 Ollama 서버
 | 패턴 | 적용 여부 | 이 프로젝트에서의 역할 |
 | --- | --- | --- |
 | ① 체인 | 적용 | 질문 → 검색 → 근거 확인 → 답변 단계를 `ChatService.ask()`가 순서대로 연결 |
-| ② 구조화 출력 | 적용 | Ollama에 JSON 형식을 요청하고 답변·출처 번호를 서버에서 다시 검증 |
+| ② 구조화 출력 | 적용 | Ollama에 JSON 형식을 요청하고 인용 구절·출처 번호를 서버에서 다시 검증 |
 | ③ 대화 메모리 | 적용 | 세션과 선택한 영상별로 최근 4회 대화를 보관해 후속 질문에 활용 |
 | ④ 도구 연결(Tool Binding) | 적용 | 모델이 자막 검색어를 제안하고, 실제 검색은 서버가 실행 |
 | ⑤ 안정성·복구 | 적용 | 일시 오류 재시도, 생성량 제한, 근거 부족 시 생성 생략, 형식 오류 시 자막 원문 표시 |
-| ⑥ 복합 체인 | 적용 | 검색어 선택·영상 범위 검색·점수 필터·답변 생성·기록 저장을 하나의 흐름으로 연결 |
+| ⑥ 복합 체인 | 적용 | 검색어 선택·영상 범위 검색·관련성 검사·자막 구절 선택·기록 저장을 하나의 흐름으로 연결 |
 | ⑦ RAG | 적용 | ChromaDB에서 찾은 자막을 답변 근거로 넣고 실제 영상 시점 링크를 반환 |
 | ⑧ Agent | 검토 후 미적용 | 현재는 자막 검색 도구 한 번이면 충분해 모델에 반복적인 도구 선택 권한을 주지 않음 |
 
@@ -177,9 +177,9 @@ search_query = self._tool_query(plan, question, history)
 found = self.search_engine.search(search_query, top_k=6)
 ```
 
-**② 구조화 출력 — 답변과 출처 번호 검증**
-같은 파일의 `ANSWER_SCHEMA`와 `ChatService.ask()`입니다. 모델에 JSON 형식을
-요청한 후 서버가 다시 파싱하고 출처 번호를 확인합니다.
+**② 구조화 출력 — 자막 구절과 출처 번호 검증**
+같은 파일의 `QUOTE_SCHEMA`와 `ChatService.ask()`입니다. 모델에 JSON 형식을
+요청한 후 서버가 다시 파싱하고 선택한 구절이 해당 자막의 원문인지 확인합니다.
 
 ```python
 response = self.model.chat(answer_messages, response_format=answer_schema)
@@ -187,15 +187,15 @@ content = response.get("content", "").strip()
 # 코드 블록으로 감싼 JSON이면 실제 구현에서 감싼 부분을 제거
 # ...
 draft = json.loads(content)
-answer = draft["answer"].strip()
-citations = draft["citations"]
-if (not answer or not isinstance(citations, list)
-        or any(type(number) is not int or number < 1 or number > len(sources)
-               for number in citations)):
-    raise ValueError("Invalid answer or citation")
+citation = draft["citation"]
+quote = draft["quote"].strip()
+if (type(citation) is not int or citation < 1 or citation > len(sources)
+        or quote not in sources[citation - 1]["text"]):
+    raise ValueError("Quote is not grounded in selected source")
+answer = f"영상 자막 원문 [{citation}]:\n{quote}"
 ```
 
-실제 구현은 JSON 코드 블록과 `citations`의 배열 여부도 검사합니다.
+실제 구현은 JSON 코드 블록, 구절 길이, 현재 질문의 주제어 포함 여부도 검사합니다.
 
 **③ 대화 메모리 — 세션과 영상별 최근 대화**
 [`chatbot/service.py`](chatbot/service.py)의 `SessionMemory`가 질문·답변을
@@ -232,10 +232,10 @@ search_query = self._tool_query(plan, question, history)
 found = self.search_engine.search_by_video(search_query, video_id, top_k=6)
 ```
 
-**⑤ 안정성·복구 — 생성량 제한과 근거 부족 처리**
+**⑤ 안정성·복구 — 출력량 제한과 근거 부족 처리**
 [`chatbot/ollama_client.py`](chatbot/ollama_client.py)는 모델 호출의 생성량을
 제한합니다. [`chatbot/service.py`](chatbot/service.py)는 근거가 없으면 답변
-생성을 건너뛰고, JSON 검증이 두 번 실패하면 자막 원문을 반환합니다.
+구절 선택을 건너뛰고, JSON 검증이 두 번 실패하면 자막 원문을 반환합니다.
 
 ```python
 # OllamaClient.chat()
@@ -253,15 +253,17 @@ if not sources:
 
 **⑥ 복합 체인 — 영상 범위 검색, 근거 선별, 대화 저장**
 [`chatbot/service.py`](chatbot/service.py)의 `ChatService.ask()`는 한 요청에서
-검색 범위를 선택하고 점수를 검사한 뒤, 최종 답변을 메모리에 남깁니다.
+검색 범위를 선택하고 점수와 질문 주제어를 검사한 뒤, 표시한 원문을 메모리에 남깁니다.
 
 ```python
 if video_id:
     found = self.search_engine.search_by_video(search_query, video_id, top_k=6)
 else:
     found = self.search_engine.search(search_query, top_k=6)
+focus = question_terms(question) or question_terms(search_query)
 sources = [item for item in found.get("results", [])
-           if item.get("text") and float(item.get("score", 0)) >= self.min_score][:4]
+           if item.get("text") and float(item.get("score", 0)) >= self.min_score
+           and (not focus or any(term in item["text"].lower() for term in focus))][:4]
 # 모델 응답 검증이 끝난 뒤
 self.memory.add(session_id, video_id, question, answer)
 ```
@@ -280,7 +282,7 @@ evidence = "\n\n".join(
 # answer_messages 안의 사용자 메시지에 evidence를 넣음
 # ...
 response = self.model.chat(answer_messages, response_format=answer_schema)
-# 모델 출력 검증 후 검색 결과 원본을 반환
+# 선택한 구절을 원문과 대조한 후 검색 결과 원본을 반환
 return {"answer": answer, "sources": sources, "citations": citations,
         "search_query": search_query, "session_id": session_id,
         "answer_type": answer_type}
@@ -346,7 +348,9 @@ docker compose exec backend python db/upload_embeddings.py --all
 ```
 
 검색 화면은 점수가 낮아도 후보를 일부 보여 줄 수 있습니다. 챗봇은 검색된
-후보 중 유사도 `CHAT_MIN_SCORE`(기본 `0.45`) 이상인 자막만 근거로 씁니다.
+후보 중 유사도 `CHAT_MIN_SCORE`(기본 `0.45`) 이상이고 현재 질문의 주제어가
+자막에 실제로 포함된 구간만 근거로 씁니다. 후속 질문에서 주제가 바뀌면 이전
+질문의 세부 주제어를 검색어에서 제외합니다.
 따라서 검색 결과가 보이는데 챗봇이 “관련 자막에서 답을 확인하지 못했습니다”라고
 답할 수 있습니다. 먼저 영상 선택 범위와 실제 자막 내용을 확인하세요.
 `CHAT_MIN_SCORE`를 낮추면 근거가 늘지만 관련성이 낮은 자막도 포함될 수 있습니다.
@@ -373,13 +377,14 @@ docker compose exec ollama ollama list
 docker compose exec ollama ollama pull qwen2.5:1.5b
 ```
 
-### “모델 응답 형식을 확인할 수 없습니다” 또는 자막 원문이 보일 때
+### 자막 원문이 길게 보일 때
 
 작은 모델은 반복 문장을 생성해 JSON을 끝내지 못하거나 존재하지 않는 출처
-번호를 돌려줄 수 있습니다. 서버는 모델 출력을 검증하고 한 번 더 형식 수정을
-요청합니다. 두 번 모두 실패하면 검증되지 않은 문장 대신 **검색된 자막 원문**을
-명시해서 보여 주며, 아래 영상 시점 링크로 원문을 확인할 수 있습니다. 이때
-반환된 내용은 AI가 정리한 답변이 아닙니다. 같은 현상이 반복되면 `backend`와
+번호나 원문에 없는 문장을 돌려줄 수 있습니다. 서버는 선택한 구절이 실제
+자막에 있는지 검사하고 한 번 더 수정을 요청합니다. 두 번 모두 실패하면
+**검색된 자막 원문**을 발췌해서 보여 줍니다. 정상 응답도 요약문이 아닌
+자막의 정확한 인용이므로 자동 자막의 오류나 어색한 표현이 남을 수 있습니다.
+같은 현상이 반복되면 `backend`와
 `ollama` 로그를 확인하고 질문을 더 구체적으로 바꿔 보세요.
 
 ### 설정을 바꿨는데 반영되지 않거나 관리자 로그인이 안 될 때

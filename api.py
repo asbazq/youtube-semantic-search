@@ -85,7 +85,7 @@ class ChatRequest(BaseModel):
     """패턴 ②: 브라우저 입력을 검증하는 요청 스키마.
 
     session_id는 대화 기록의 키이고 video_id는 검색 범위다. 모델이 반환하는
-    citations JSON 스키마는 chatbot/service.py의 ANSWER_SCHEMA에 따로 있다.
+    모델이 선택할 인용 번호와 자막 구절의 JSON 스키마는 chatbot/service.py의 QUOTE_SCHEMA에 있다.
     """
 
     question: str = Field(min_length=1, max_length=300)
