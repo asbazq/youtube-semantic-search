@@ -1,0 +1,419 @@
+{
+  "version": 1,
+  "judged_on": "2026-09-29",
+  "corpus": "119 indexed videos at local service",
+  "rubric": "A passage is relevant only if its text explicitly provides actionable information that answers the question; keyword-only mentions and unrelated lift contexts are nonrelevant. Judgments cover only the frozen top-10 pool.",
+  "cases": [
+    {
+      "id": "knee_hip",
+      "question": "스쿼트에서 무릎과 엉덩이는 어떻게 움직이나요?",
+      "criterion": "무릎과 엉덩이가 한쪽만 먼저 튀어나오지 않고 함께 내려간다는 설명",
+      "judgments": [
+        {
+          "video_id": "sxTGcWbobwE",
+          "start_time": 545.548,
+          "relevant": false
+        },
+        {
+          "video_id": "TPG4qJBfE6g",
+          "start_time": 141.95,
+          "relevant": true
+        },
+        {
+          "video_id": "37FdJVYi-_Y",
+          "start_time": 426.102,
+          "relevant": false
+        },
+        {
+          "video_id": "5teT6dBrLTA",
+          "start_time": 654.74,
+          "relevant": false
+        },
+        {
+          "video_id": "6XoI-T9le7k",
+          "start_time": 562.546,
+          "relevant": false
+        },
+        {
+          "video_id": "Mcvn19dv6ZA",
+          "start_time": 493.859,
+          "relevant": false
+        },
+        {
+          "video_id": "4g9cOdg2al4",
+          "start_time": 498.275,
+          "relevant": false
+        },
+        {
+          "video_id": "iJdUgsWxXew",
+          "start_time": 62.63,
+          "relevant": false
+        },
+        {
+          "video_id": "H5ax0XH25_4",
+          "start_time": 12.941,
+          "relevant": false
+        },
+        {
+          "video_id": "mmE2nIUd2gs",
+          "start_time": 18.226,
+          "relevant": false
+        }
+      ]
+    },
+    {
+      "id": "heel_center",
+      "question": "스쿼트 중심을 뒤꿈치에 둬야 하나요?",
+      "criterion": "뒤꿈치에만 두지 말고 발 전체의 중심을 유지한다는 설명",
+      "judgments": [
+        {
+          "video_id": "z8NOQGzvM5k",
+          "start_time": 73.113,
+          "relevant": false
+        },
+        {
+          "video_id": "aoVplRS331w",
+          "start_time": 684.558,
+          "relevant": false
+        },
+        {
+          "video_id": "c2cA5qarQSg",
+          "start_time": 32.909,
+          "relevant": true
+        },
+        {
+          "video_id": "sxTGcWbobwE",
+          "start_time": 259.84,
+          "relevant": true
+        },
+        {
+          "video_id": "8Y7QVMXA0IM",
+          "start_time": 118.797,
+          "relevant": true
+        },
+        {
+          "video_id": "CvRkm2O_vVI",
+          "start_time": 434.75,
+          "relevant": false
+        },
+        {
+          "video_id": "qZCPBRnlU_g",
+          "start_time": 382.735,
+          "relevant": false
+        },
+        {
+          "video_id": "CThzXFaoy-U",
+          "start_time": 305.376,
+          "relevant": false
+        },
+        {
+          "video_id": "8Y7QVMXA0IM",
+          "start_time": 152.682,
+          "relevant": true
+        },
+        {
+          "video_id": "xlC_oBjvR6g",
+          "start_time": 20.532,
+          "relevant": false
+        }
+      ]
+    },
+    {
+      "id": "breathing",
+      "question": "스쿼트할 때 호흡은 어떻게 해야 하나요?",
+      "criterion": "스쿼트 호흡을 마시는 방향이나 방법에 대한 구체적 지시",
+      "judgments": [
+        {
+          "video_id": "WeA8kdzgZ0Y",
+          "start_time": 773.703,
+          "relevant": false
+        },
+        {
+          "video_id": "Mtj8Kq0VWjw",
+          "start_time": 519.864,
+          "relevant": true
+        },
+        {
+          "video_id": "rVohtKmxiF0",
+          "start_time": 16.51,
+          "relevant": false
+        },
+        {
+          "video_id": "vWNKlq_21NM",
+          "start_time": 570.512,
+          "relevant": false
+        },
+        {
+          "video_id": "37FdJVYi-_Y",
+          "start_time": 254.605,
+          "relevant": true
+        },
+        {
+          "video_id": "N3IKjMURM60",
+          "start_time": 569.076,
+          "relevant": false
+        },
+        {
+          "video_id": "cPy0AQQBE38",
+          "start_time": 998.47,
+          "relevant": true
+        },
+        {
+          "video_id": "j2NpbLBYB0A",
+          "start_time": 370.278,
+          "relevant": true
+        },
+        {
+          "video_id": "j2NpbLBYB0A",
+          "start_time": 356.302,
+          "relevant": false
+        },
+        {
+          "video_id": "ICDvy7fkkE8",
+          "start_time": 188.964,
+          "relevant": false
+        }
+      ]
+    },
+    {
+      "id": "gaze",
+      "question": "데드리프트할 때 시선은 어디에 두나요?",
+      "criterion": "데드리프트 시선의 방향이나 고정 지점에 대한 구체적 지시",
+      "judgments": [
+        {
+          "video_id": "N3IKjMURM60",
+          "start_time": 312.219,
+          "relevant": false
+        },
+        {
+          "video_id": "uQn17xWaTqQ",
+          "start_time": 330.809,
+          "relevant": false
+        },
+        {
+          "video_id": "YOiK3gHlg8M",
+          "start_time": 529.912,
+          "relevant": true
+        },
+        {
+          "video_id": "nCnbUWcjmIw",
+          "start_time": 94.126,
+          "relevant": true
+        },
+        {
+          "video_id": "bbscsqrHchk",
+          "start_time": 710.624,
+          "relevant": false
+        },
+        {
+          "video_id": "uQn17xWaTqQ",
+          "start_time": 429.266,
+          "relevant": true
+        },
+        {
+          "video_id": "8Y7QVMXA0IM",
+          "start_time": 303.187,
+          "relevant": false
+        },
+        {
+          "video_id": "Q2lI9kyfN9w",
+          "start_time": 606.057,
+          "relevant": false
+        },
+        {
+          "video_id": "bbscsqrHchk",
+          "start_time": 718.006,
+          "relevant": false
+        },
+        {
+          "video_id": "yfIvflpewSI",
+          "start_time": 374.308,
+          "relevant": false
+        }
+      ]
+    },
+    {
+      "id": "brace_timing",
+      "question": "스쿼트 복압은 언제 잡아야 하나요?",
+      "criterion": "언랙 전후 복압을 잡는 시점에 대한 설명",
+      "judgments": [
+        {
+          "video_id": "WeA8kdzgZ0Y",
+          "start_time": 41.184,
+          "relevant": false
+        },
+        {
+          "video_id": "i7-EBXMp3Gw",
+          "start_time": 651.784,
+          "relevant": false
+        },
+        {
+          "video_id": "nhe1bWpVWNE",
+          "start_time": 41.968,
+          "relevant": true
+        },
+        {
+          "video_id": "i7-EBXMp3Gw",
+          "start_time": 43.398,
+          "relevant": false
+        },
+        {
+          "video_id": "cPy0AQQBE38",
+          "start_time": 244.143,
+          "relevant": false
+        },
+        {
+          "video_id": "j2NpbLBYB0A",
+          "start_time": 487.077,
+          "relevant": false
+        },
+        {
+          "video_id": "CnEsBuEpNVE",
+          "start_time": 314.828,
+          "relevant": false
+        },
+        {
+          "video_id": "iJdUgsWxXew",
+          "start_time": 84.385,
+          "relevant": false
+        },
+        {
+          "video_id": "WeA8kdzgZ0Y",
+          "start_time": 1101.929,
+          "relevant": false
+        },
+        {
+          "video_id": "H5ax0XH25_4",
+          "start_time": 3.32,
+          "relevant": false
+        }
+      ]
+    },
+    {
+      "id": "bench_legs",
+      "question": "벤치프레스할 때 다리는 어떻게 세팅하나요?",
+      "criterion": "벤치프레스 다리로 지면을 미는 세팅 설명",
+      "judgments": [
+        {
+          "video_id": "Qydu7Me38hk",
+          "start_time": 714.104,
+          "relevant": true
+        },
+        {
+          "video_id": "c3DBC67Etds",
+          "start_time": 755.463,
+          "relevant": false
+        },
+        {
+          "video_id": "YOiK3gHlg8M",
+          "start_time": 263.308,
+          "relevant": false
+        },
+        {
+          "video_id": "QWHyY5YjRkE",
+          "start_time": 376.5,
+          "relevant": false
+        },
+        {
+          "video_id": "l294FltEUF4",
+          "start_time": 402.373,
+          "relevant": false
+        },
+        {
+          "video_id": "WeA8kdzgZ0Y",
+          "start_time": 589.141,
+          "relevant": false
+        },
+        {
+          "video_id": "c3DBC67Etds",
+          "start_time": 115.336,
+          "relevant": false
+        },
+        {
+          "video_id": "qZCPBRnlU_g",
+          "start_time": 652.898,
+          "relevant": false
+        },
+        {
+          "video_id": "i7-EBXMp3Gw",
+          "start_time": 683.255,
+          "relevant": false
+        },
+        {
+          "video_id": "CvRkm2O_vVI",
+          "start_time": 773.209,
+          "relevant": false
+        }
+      ]
+    },
+    {
+      "id": "ohp_lowering",
+      "question": "오버헤드프레스를 내릴 때 팁은 무엇인가요?",
+      "criterion": "내리는 동작의 팔꿈치·어깨 사용법에 대한 지시",
+      "judgments": [
+        {
+          "video_id": "CvRkm2O_vVI",
+          "start_time": 136.67,
+          "relevant": false
+        }
+      ]
+    },
+    {
+      "id": "hip_height",
+      "question": "데드리프트할 때 엉덩이 높이는 어떻게 잡나요?",
+      "criterion": "데드리프트 시작 자세의 엉덩이 높이를 조정하는 설명",
+      "judgments": [
+        {
+          "video_id": "h1DQIpxLrMw",
+          "start_time": 15.083,
+          "relevant": false
+        },
+        {
+          "video_id": "q1ZvDmjY6A4",
+          "start_time": 34.674,
+          "relevant": false
+        },
+        {
+          "video_id": "uQn17xWaTqQ",
+          "start_time": 347.754,
+          "relevant": true
+        },
+        {
+          "video_id": "c3DBC67Etds",
+          "start_time": 585.841,
+          "relevant": false
+        },
+        {
+          "video_id": "h1DQIpxLrMw",
+          "start_time": 6.71,
+          "relevant": false
+        },
+        {
+          "video_id": "z8NOQGzvM5k",
+          "start_time": 282.657,
+          "relevant": true
+        },
+        {
+          "video_id": "z8NOQGzvM5k",
+          "start_time": 239.158,
+          "relevant": true
+        },
+        {
+          "video_id": "xWWCqbwlt3A",
+          "start_time": 119.386,
+          "relevant": false
+        },
+        {
+          "video_id": "CsoReWY0zPo",
+          "start_time": 162.732,
+          "relevant": false
+        },
+        {
+          "video_id": "uQn17xWaTqQ",
+          "start_time": 623.991,
+          "relevant": true
+        }
+      ]
+    }
+  ]
+}
